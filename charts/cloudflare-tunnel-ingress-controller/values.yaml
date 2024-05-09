@@ -1,0 +1,19 @@
+image:
+  repository: ghcr.io/cybroslabs/cloudflare-tunnel-ingress-controller
+  tag: latest
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+ingressClass:
+  name: cloudflare-tunnel
+  controller: github.com/cybroslabs/cloudflare-tunnel-ingress
+  isDefaultClass: false
+
