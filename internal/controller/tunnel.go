@@ -22,3 +22,7 @@ func (c *IngressController) ensureCloudflareTunnelExists(ctx context.Context, lo
 	c.cloudflaredDeploymentConfig.tunnelToken = token
 	return nil
 }
+
+func (c *IngressController) SetTunnelToken(token string) {
+	c.cloudflaredDeploymentConfig.tunnelToken = token
+}

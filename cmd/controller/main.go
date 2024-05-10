@@ -85,6 +85,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	token, err := tunnelClient.GetTunnelToken(ctx)
+	if err != nil {
+		logger.Error(err, "could not get tunnel token")
+		stop()
+		os.Exit(1)
+	}
+	ctrlr.SetTunnelToken(token)
+
 	wg := &sync.WaitGroup{}
 	go func() {
 		defer wg.Done()
