@@ -109,3 +109,32 @@ func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Cont
 
 	return nil
 }
+
+func (c *IngressController) deleteTunnelConfigurationForIngress(ctx context.Context, logger logr.Logger, ingress *networkingv1.Ingress) error {
+	logger.Info("Deleting tunnel configuration for Ingress resource")
+
+	cfg := tunnel.Config{}
+	cfg.Ingresses = make([]tunnel.IngressConfig, 0)
+
+	for _, rule := range ingress.Spec.Rules {
+		if rule.HTTP == nil {
+			continue
+		}
+
+		for _, path := range rule.HTTP.Paths {
+			if path.PathType == nil {
+				continue
+			}
+
+			cfg.Ingresses = append(cfg.Ingresses, tunnel.IngressConfig{Hostname: rule.Host, Path: path.Path})
+		}
+	}
+
+	err := c.tunnelClient.DeleteFromTunnelConfiguration(ctx, logger, cfg)
+	if err != nil {
+		logger.Error(err, "Failed to delete from tunnel configuration")
+		return err
+	}
+
+	return nil
+}

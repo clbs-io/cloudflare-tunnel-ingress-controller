@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"github.com/go-logr/logr"
 	networkingv1 "k8s.io/api/networking/v1"
 )
@@ -32,5 +31,28 @@ func (c *IngressController) ensureFinalizers(ctx context.Context, logger logr.Lo
 }
 
 func (c *IngressController) finalizeIngress(ctx context.Context, logger logr.Logger, ing *networkingv1.Ingress) error {
-	return errors.New("not implemented")
+	err := c.deleteTunnelConfigurationForIngress(ctx, logger, ing)
+	if err != nil {
+		logger.Error(err, "Failed to delete tunnel configuration for Ingress")
+		return err
+	}
+
+	ing.SetFinalizers(removeFinalizer(ing.GetFinalizers(), ingressTunnelFinalizer))
+
+	err = c.client.Update(ctx, ing)
+	if err != nil {
+		logger.Error(err, "Failed to update Ingress after removing finalizer")
+		return err
+	}
+
+	return nil
+}
+
+func removeFinalizer(finalizers []string, finalizer string) []string {
+	for i, f := range finalizers {
+		if f == finalizer {
+			return append(finalizers[:i], finalizers[i+1:]...)
+		}
+	}
+	return finalizers
 }

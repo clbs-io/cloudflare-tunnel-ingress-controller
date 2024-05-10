@@ -109,6 +109,43 @@ func (c *Client) createTunnel(ctx context.Context) error {
 	return nil
 }
 
+func (c *Client) DeleteFromTunnelConfiguration(ctx context.Context, logger logr.Logger, toDeleteConfig Config) error {
+	tc, err := c.cloudflareAPI.GetTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.accountID), c.tunnelID)
+	if err != nil {
+		logger.Error(err, "Failed to get tunnel configuration")
+		return err
+	}
+
+	tunnelConfig := &tc.Config
+	if tunnelConfig.Ingress == nil {
+		tunnelConfig.Ingress = make([]cloudflare.UnvalidatedIngressRule, 0)
+	}
+
+	for _, ing := range toDeleteConfig.Ingresses {
+		for i, ingRule := range tunnelConfig.Ingress {
+			// we are not checking the service, since it is not important when deleting
+			if ingRule.Hostname == ing.Hostname && ingRule.Path == ing.Path {
+				err = c.deleteIngressFromTunnelConfigurationStructAndDeleteDNSRecord(ctx, logger, tunnelConfig, toDeleteConfig.Ingresses[i])
+				if err != nil {
+					logger.Error(err, "Failed to delete ingress rule from tunnel configuration")
+					return err
+				}
+			}
+		}
+	}
+
+	_, err = c.cloudflareAPI.UpdateTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelConfigurationParams{
+		TunnelID: c.tunnelID,
+		Config:   *tunnelConfig,
+	})
+	if err != nil {
+		logger.Error(err, "Failed to update tunnel configuration", "tunnelConfig", tunnelConfig)
+		return err
+	}
+
+	return nil
+}
+
 func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logger, config Config) error {
 	logger.Info("Ensuring Cloudflare Tunnel configuration")
 
@@ -193,6 +230,12 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 		tunnelConfig.Ingress = append(tunnelConfig.Ingress, cloudflare.UnvalidatedIngressRule{Service: "http_status:404"})
 	}
 
+	for i := 0; i < len(tunnelConfig.Ingress); i++ {
+		if tunnelConfig.Ingress[i].Service == "http_status:404" && i != len(tunnelConfig.Ingress)-1 {
+			tunnelConfig.Ingress = append(tunnelConfig.Ingress[:i], tunnelConfig.Ingress[i+1:]...)
+		}
+	}
+
 	if tunnelConfigUpdated {
 		_, err = c.cloudflareAPI.UpdateTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelConfigurationParams{
 			TunnelID: c.tunnelID,
@@ -233,7 +276,8 @@ func (c *Client) deleteIngressFromTunnelConfigurationStructAndDeleteDNSRecord(ct
 
 	var idx int
 	for i, rule := range tunnelConfig.Ingress {
-		if rule.Hostname == ingress.Hostname && rule.Path == ingress.Path && rule.Service == ingress.Service {
+		// do not check the service, since it is not important when deleting
+		if rule.Hostname == ingress.Hostname && rule.Path == ingress.Path {
 			idx = i
 			break
 		}
