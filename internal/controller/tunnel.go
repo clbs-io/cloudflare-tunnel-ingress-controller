@@ -5,6 +5,10 @@ import (
 	"github.com/go-logr/logr"
 )
 
+func (c *IngressController) SetTunnelToken(token string) {
+	c.cloudflaredDeploymentConfig.tunnelToken = token
+}
+
 func (c *IngressController) ensureCloudflareTunnelExists(ctx context.Context, logger logr.Logger) error {
 	logger.Info("Ensuring Cloudflare Tunnel exists")
 	err := c.tunnelClient.EnsureTunnelExists(ctx)
@@ -21,8 +25,4 @@ func (c *IngressController) ensureCloudflareTunnelExists(ctx context.Context, lo
 
 	c.cloudflaredDeploymentConfig.tunnelToken = token
 	return nil
-}
-
-func (c *IngressController) SetTunnelToken(token string) {
-	c.cloudflaredDeploymentConfig.tunnelToken = token
 }
