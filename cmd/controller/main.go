@@ -8,12 +8,13 @@ import (
 	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/controller"
 	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/go-logr/logr"
-	"github.com/go-logr/stdr"
-	"log"
+	"go.uber.org/zap"
 	"os"
 	"os/signal"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	logzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sync"
 	"syscall"
@@ -34,13 +35,19 @@ var (
 )
 
 func main() {
+	loggerOpts := &logzap.Options{
+		Development: true, // a sane default
+		ZapOpts:     []zap.Option{zap.AddCaller()},
+	}
+
+	ctrl.SetLogger(logzap.New(logzap.UseFlagOptions(loggerOpts)))
+
+	logger := ctrl.Log.WithName("main")
+
+	logger.Info("Starting Cloudflare Tunnel Ingress Controller")
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
-
-	logger := stdr.NewWithOptions(log.New(os.Stderr, "", log.LstdFlags), stdr.Options{LogCaller: stdr.All})
-	stdr.SetVerbosity(0)
-
-	logger.Info("logger verbosity", "verbosity", 0)
 
 	loadConfig(logger)
 
