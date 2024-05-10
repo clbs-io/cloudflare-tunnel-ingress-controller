@@ -30,7 +30,7 @@ func NewClient(cloudflareAPI *cloudflare.API, accountID, tunnelName string, logg
 
 func (c *Client) GetTunnelToken(ctx context.Context) (string, error) {
 	if c.tunnelToken == "" {
-		return c.cloudflareAPI.GetTunnelToken(ctx, cloudflare.ResourceIdentifier(c.accountID), c.tunnelID)
+		return c.cloudflareAPI.GetTunnelToken(ctx, cloudflare.AccountIdentifier(c.accountID), c.tunnelID)
 	}
 
 	return c.tunnelToken, nil
@@ -40,7 +40,7 @@ func (c *Client) EnsureTunnelExists(ctx context.Context) error {
 	if c.tunnelID == "" {
 		c.logger.Info("TunnelID not set, looking for an existing tunnel")
 
-		tunnels, _, err := c.cloudflareAPI.ListTunnels(ctx, cloudflare.ResourceIdentifier(c.accountID), cloudflare.TunnelListParams{})
+		tunnels, _, err := c.cloudflareAPI.ListTunnels(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelListParams{})
 		if err != nil {
 			c.logger.Error(err, "Failed to list tunnels")
 			return err
@@ -59,7 +59,7 @@ func (c *Client) EnsureTunnelExists(ctx context.Context) error {
 		return c.createTunnel(ctx)
 	}
 
-	tunnel, err := c.cloudflareAPI.GetTunnel(ctx, cloudflare.ResourceIdentifier(c.accountID), c.tunnelID)
+	tunnel, err := c.cloudflareAPI.GetTunnel(ctx, cloudflare.AccountIdentifier(c.accountID), c.tunnelID)
 	if err != nil {
 		c.logger.Error(err, "Failed to get the tunnel")
 		return err
@@ -68,7 +68,7 @@ func (c *Client) EnsureTunnelExists(ctx context.Context) error {
 	if tunnel.Name != c.tunnelName {
 		// TODO: rename tunnel back to the original name
 
-		//tunnel, err := c.cloudflareAPI.UpdateTunnelConfiguration(ctx, cloudflare.ResourceIdentifier(c.tunnelID), cloudflare.TunnelConfigurationParams{
+		//tunnel, err := c.cloudflareAPI.UpdateTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.tunnelID), cloudflare.TunnelConfigurationParams{
 		//	TunnelID: c.tunnelID,
 		//	Config: cloudflare.TunnelConfiguration{
 		//		Name: c.tunnelName,
@@ -90,7 +90,7 @@ func (c *Client) createTunnel(ctx context.Context) error {
 	}
 
 	hexSecret := hex.EncodeToString(secret)
-	tunnel, err := c.cloudflareAPI.CreateTunnel(ctx, cloudflare.ResourceIdentifier(c.accountID), cloudflare.TunnelCreateParams{
+	tunnel, err := c.cloudflareAPI.CreateTunnel(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelCreateParams{
 		Name:      c.tunnelName,
 		Secret:    hexSecret,
 		ConfigSrc: "cloudflare",
