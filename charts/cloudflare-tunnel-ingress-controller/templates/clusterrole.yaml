@@ -27,3 +27,14 @@ rules:
       - ingresses/status
     verbs:
       - update
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
+      - watch
+      - update
+      - create
+      - delete
