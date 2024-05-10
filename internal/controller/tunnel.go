@@ -6,6 +6,7 @@ import (
 )
 
 func (c *IngressController) ensureCloudflareTunnelExists(ctx context.Context, logger logr.Logger) error {
+	logger.Info("Ensuring Cloudflare Tunnel exists")
 	err := c.tunnelClient.EnsureTunnelExists(ctx)
 	if err != nil {
 		logger.Error(err, "Failed to ensure Cloudflare Tunnel exists")

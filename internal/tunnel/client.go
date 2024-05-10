@@ -48,10 +48,13 @@ func (c *Client) EnsureTunnelExists(ctx context.Context) error {
 
 		for _, tunnel := range tunnels {
 			if tunnel.Name == c.tunnelName {
+				c.logger.Info("Cloudflare Tunnel found", "tunnelID", tunnel.ID)
 				c.tunnelID = tunnel.ID
 				return nil
 			}
 		}
+
+		c.logger.Info("Cloudflare Tunnel not found, creating a new one")
 
 		return c.createTunnel(ctx)
 	}
@@ -97,6 +100,7 @@ func (c *Client) createTunnel(ctx context.Context) error {
 		return err
 	}
 
+	c.logger.Info("Cloudflare Tunnel created", "tunnelID", tunnel.ID)
 	c.tunnelID = tunnel.ID
 	return nil
 }
