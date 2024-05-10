@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/cloudflare/cloudflare-go"
 	"github.com/go-logr/logr"
@@ -237,6 +238,46 @@ func (c *Client) addNewIngressToTunnelConfigurationStructAndCreateDNSRecord(ctx 
 		Hostname: ingress.Hostname,
 		Path:     ingress.Path,
 		Service:  ingress.Service,
+	}
+
+	if ingress.OriginConfig != nil {
+		var tmp *cloudflare.OriginRequestConfig
+		if tmp = newIngressRule.OriginRequest; tmp == nil {
+			tmp = &cloudflare.OriginRequestConfig{}
+			newIngressRule.OriginRequest = tmp
+		}
+
+		if connectTimeout := ingress.OriginConfig.ConnectTimeout; connectTimeout != nil {
+			tmp.ConnectTimeout = &cloudflare.TunnelDuration{
+				Duration: time.Duration(connectTimeout.Nanoseconds()),
+			}
+		}
+		if tlsTimeout := ingress.OriginConfig.TLSTimeout; tlsTimeout != nil {
+			tmp.TLSTimeout = &cloudflare.TunnelDuration{
+				Duration: time.Duration(tlsTimeout.Nanoseconds()),
+			}
+		}
+		if tcpKeepAlive := ingress.OriginConfig.TCPKeepAlive; tcpKeepAlive != nil {
+			tmp.TCPKeepAlive = &cloudflare.TunnelDuration{
+				Duration: time.Duration(tcpKeepAlive.Nanoseconds()),
+			}
+		}
+		if keepAliveTimeout := ingress.OriginConfig.KeepAliveTimeout; keepAliveTimeout != nil {
+			tmp.KeepAliveTimeout = &cloudflare.TunnelDuration{
+				Duration: time.Duration(keepAliveTimeout.Nanoseconds()),
+			}
+		}
+		tmp.NoHappyEyeballs = ingress.OriginConfig.NoHappyEyeballs
+		tmp.KeepAliveConnections = ingress.OriginConfig.KeepAliveConnections
+		tmp.HTTPHostHeader = ingress.OriginConfig.HTTPHostHeader
+		tmp.OriginServerName = ingress.OriginConfig.OriginServerName
+		tmp.NoTLSVerify = ingress.OriginConfig.NoTLSVerify
+		tmp.DisableChunkedEncoding = ingress.OriginConfig.DisableChunkedEncoding
+		tmp.BastionMode = ingress.OriginConfig.BastionMode
+		tmp.ProxyAddress = ingress.OriginConfig.ProxyAddress
+		tmp.ProxyPort = ingress.OriginConfig.ProxyPort
+		tmp.ProxyType = ingress.OriginConfig.ProxyType
+		tmp.Http2Origin = ingress.OriginConfig.Http2Origin
 	}
 
 	tunnelConfig.Ingress = append(tunnelConfig.Ingress, newIngressRule)
