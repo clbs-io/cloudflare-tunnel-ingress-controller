@@ -231,7 +231,7 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 	return nil
 }
 
-func (c *Client) addNewIngressToTunnelConfigurationStructAndCreateDNSRecord(ctx context.Context, logger logr.Logger, tunnelConfig *cloudflare.TunnelConfiguration, ingress IngressConfig) error {
+func (c *Client) addNewIngressToTunnelConfigurationStructAndCreateDNSRecord(ctx context.Context, logger logr.Logger, tunnelConfig *cloudflare.TunnelConfiguration, ingress *IngressConfig) error {
 	logger.Info("Adding new ingress rule to tunnel configuration")
 
 	newIngressRule := cloudflare.UnvalidatedIngressRule{
@@ -310,7 +310,7 @@ func (c *Client) deleteIngressFromTunnelConfigurationStructAndDeleteDNSRecord(ct
 	return nil
 }
 
-func (c *Client) createDNSRecord(ctx context.Context, logger logr.Logger, ingress IngressConfig) error {
+func (c *Client) createDNSRecord(ctx context.Context, logger logr.Logger, ingress *IngressConfig) error {
 	logger.Info("Creating new DNS record")
 
 	truth := true

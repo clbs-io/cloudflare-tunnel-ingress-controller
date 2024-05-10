@@ -4,17 +4,25 @@ import (
 	"time"
 )
 
+// Config represents the configuration for the Cloudflare Tunnel.
 type Config struct {
-	Ingresses []IngressConfig
+	// Ingresses is a list of Ingress resources to configure the Cloudflare Tunnel with.
+	Ingresses []*IngressConfig
 }
 
+// IngressConfig represents the configuration for a single Ingress resource.
 type IngressConfig struct {
-	Hostname     string
-	Path         string
-	Service      string
+	// Hostname is the hostname of the Ingress resource.
+	Hostname string
+	// Path is the path of the Ingress resource.
+	Path string
+	// Service is the name of the Kubernetes Service that the Ingress resource points to.
+	Service string
+	// Additional Cloudflare Tunnel options.
 	OriginConfig *IngressOriginConfig
 }
 
+// IngressOriginConfig represents the Cloudflare Tunnel options.
 type IngressOriginConfig struct {
 	// HTTP proxy timeout for establishing a new connection
 	ConnectTimeout *time.Duration `json:"connectTimeout,omitempty"`

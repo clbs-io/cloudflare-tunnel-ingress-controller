@@ -41,7 +41,7 @@ func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Cont
 	logger.Info("Ensuring Cloudflare Tunnel configuration")
 
 	cfg := tunnel.Config{
-		Ingresses: make([]tunnel.IngressConfig, 0),
+		Ingresses: make([]*tunnel.IngressConfig, 0),
 	}
 
 	for _, rule := range ingress.Spec.Rules {
@@ -85,11 +85,12 @@ func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Cont
 				if annotation == AnnotationBackendProtocol {
 					// check if annotation value (backend protocol) is supported
 					for _, protocol := range SupportedBackendProtocols {
-						if value == protocol {
+						if strings.EqualFold(value, protocol) {
 							scheme = strings.ToLower(value)
 							break
 						}
 					}
+					break
 				}
 			}
 
@@ -212,7 +213,7 @@ func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Cont
 				tunnelIng.OriginConfig = origin_config
 			}
 
-			cfg.Ingresses = append(cfg.Ingresses, tunnelIng)
+			cfg.Ingresses = append(cfg.Ingresses, &tunnelIng)
 		}
 	}
 
@@ -229,7 +230,7 @@ func (c *IngressController) deleteTunnelConfigurationForIngress(ctx context.Cont
 	logger.Info("Deleting tunnel configuration for Ingress resource")
 
 	cfg := tunnel.Config{}
-	cfg.Ingresses = make([]tunnel.IngressConfig, 0)
+	cfg.Ingresses = make([]*tunnel.IngressConfig, 0)
 
 	for _, rule := range ingress.Spec.Rules {
 		if rule.HTTP == nil {
@@ -241,7 +242,7 @@ func (c *IngressController) deleteTunnelConfigurationForIngress(ctx context.Cont
 				continue
 			}
 
-			cfg.Ingresses = append(cfg.Ingresses, tunnel.IngressConfig{Hostname: rule.Host, Path: path.Path})
+			cfg.Ingresses = append(cfg.Ingresses, &tunnel.IngressConfig{Hostname: rule.Host, Path: path.Path})
 		}
 	}
 
