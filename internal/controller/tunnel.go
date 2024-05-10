@@ -8,6 +8,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"strings"
 )
 
 func (c *IngressController) SetTunnelToken(token string) {
@@ -52,7 +53,7 @@ func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Cont
 			// We do not support pathType=Exact
 			// pathType=Prefix and pathType=ImplementationSpecific are supported
 			// and behave the same way
-			if *path.PathType != networkingv1.PathTypeExact {
+			if *path.PathType == networkingv1.PathTypeExact {
 				continue
 			}
 
@@ -74,7 +75,21 @@ func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Cont
 				}
 			}
 
-			tunnelService := fmt.Sprintf("%s.%s:%d", path.Backend.Service.Name, ingress.Namespace, portNumber)
+			scheme := "http"
+			for annotation, value := range ingress.Annotations {
+				// find right annotation
+				if annotation == AnnotationBackendProtocol {
+					// check if annotation value (backend protocol) is supported
+					for _, protocol := range SupportedBackendProtocols {
+						if value == protocol {
+							scheme = strings.ToLower(value)
+							break
+						}
+					}
+				}
+			}
+
+			tunnelService := fmt.Sprintf("%s://%s.%s:%d", scheme, path.Backend.Service.Name, ingress.Namespace, portNumber)
 
 			tunnelIng := tunnel.IngressConfig{
 				Hostname: rule.Host,

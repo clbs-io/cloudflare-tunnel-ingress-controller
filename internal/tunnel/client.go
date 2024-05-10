@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"github.com/cloudflare/cloudflare-go"
 	"github.com/go-logr/logr"
 	"strings"
@@ -117,7 +118,12 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 		return err
 	}
 
-	tunnelConfig := tc.Config
+	tunnelConfig := &tc.Config
+	tunnelConfigUpdated := false
+
+	if tunnelConfig.Ingress == nil {
+		tunnelConfig.Ingress = make([]cloudflare.UnvalidatedIngressRule, 0)
+	}
 
 	newHostname := make(map[string]bool)
 	deletedHostname := make(map[string]bool)
@@ -141,6 +147,27 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 		}
 	}
 
+	// delete hostnames
+	for hostname, isDeleted := range deletedHostname {
+		if !isDeleted {
+			continue
+		}
+
+		for i, ing := range config.Ingresses {
+			if ing.Hostname == hostname && !newHostname[ing.Hostname] {
+				err = c.deleteIngressFromTunnelConfigurationStructAndDeleteDNSRecord(ctx, logger, tunnelConfig, config.Ingresses[i])
+				if err != nil {
+					logger.Error(err, "Failed to delete ingress rule from tunnel configuration")
+					return err
+				}
+
+				tunnelConfigUpdated = true
+
+				break
+			}
+		}
+	}
+
 	// create new hostnames
 	for hostname, isNew := range newHostname {
 		if !isNew {
@@ -149,43 +176,32 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 
 		for i, ing := range config.Ingresses {
 			if ing.Hostname == hostname {
-				err = c.addNewIngressToTunnelConfigurationStructAndCreateDNSRecord(ctx, logger, &tunnelConfig, config.Ingresses[i])
+				err = c.addNewIngressToTunnelConfigurationStructAndCreateDNSRecord(ctx, logger, tunnelConfig, config.Ingresses[i])
 				if err != nil {
 					logger.Error(err, "Failed to add new ingress rule to tunnel configuration")
 					return err
 				}
 
-				break
-			}
-		}
-	}
-
-	// delete hostnames
-	for hostname, isDeleted := range deletedHostname {
-		if !isDeleted {
-			continue
-		}
-
-		for i, ing := range config.Ingresses {
-			if ing.Hostname == hostname {
-				err = c.deleteIngressFromTunnelConfigurationStructAndDeleteDNSRecord(ctx, logger, &tunnelConfig, config.Ingresses[i])
-				if err != nil {
-					logger.Error(err, "Failed to delete ingress rule from tunnel configuration")
-					return err
-				}
+				tunnelConfigUpdated = true
 
 				break
 			}
 		}
 	}
 
-	_, err = c.cloudflareAPI.UpdateTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelConfigurationParams{
-		TunnelID: c.tunnelID,
-		Config:   tc.Config,
-	})
-	if err != nil {
-		logger.Error(err, "Failed to update tunnel configuration")
-		return err
+	if len(tunnelConfig.Ingress) > 0 {
+		tunnelConfig.Ingress = append(tunnelConfig.Ingress, cloudflare.UnvalidatedIngressRule{Service: "http_status:404"})
+	}
+
+	if tunnelConfigUpdated {
+		_, err = c.cloudflareAPI.UpdateTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelConfigurationParams{
+			TunnelID: c.tunnelID,
+			Config:   *tunnelConfig,
+		})
+		if err != nil {
+			logger.Error(err, "Failed to update tunnel configuration", "tunnelConfig", tunnelConfig)
+			return err
+		}
 	}
 
 	return nil
@@ -272,6 +288,18 @@ func (c *Client) createDNSRecord(ctx context.Context, logger logr.Logger, ingres
 		Comment: "Automatically created by Cloudflare Tunnel Ingress Controller",
 	})
 	if err != nil {
+		cfErr := &cloudflare.RequestError{}
+		if errors.As(err, &cfErr) {
+			for _, e := range cfErr.Errors() {
+				if e.Code != 81053 {
+					logger.Error(err, "Failed to create DNS record")
+					return err
+				}
+			}
+			// 81053: "Record already exists"
+			return nil
+		}
+
 		logger.Error(err, "Failed to create DNS record")
 		return err
 	}
