@@ -17,3 +17,16 @@ ingressClass:
   controller: github.com/cybroslabs/cloudflare-tunnel-ingress
   isDefaultClass: false
 
+config:
+  cloudflared:
+    image: cloudflare/cloudflared:2024.4.1
+    imagePullPolicy: IfNotPresent
+
+  cloudflare:
+    accountID: xxx
+    tunnelName: xxx
+    
+    apiToken:
+      existingSecret:
+        name: cloudflare-api-token
+        key: api-token

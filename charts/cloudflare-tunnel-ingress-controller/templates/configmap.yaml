@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}
+data:
+  CLOUDFLARED_IMAGE: {{ .Values.config.cloudflared.image | quote }}
+  CLOUDFLARED_IMAGE_PULL_POLICY: {{ .Values.config.cloudflared.imagePullPolicy | quote }}
+  CLOUDFLARE_ACCOUNT_ID: {{ .Values.config.cloudflare.accountID | quote }}
+  CLOUDFLARE_TUNNEL_NAME: {{ .Values.config.cloudflare.tunnelName | quote }}
