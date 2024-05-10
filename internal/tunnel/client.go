@@ -5,9 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"strings"
+
 	"github.com/cloudflare/cloudflare-go"
 	"github.com/go-logr/logr"
-	"strings"
 )
 
 const tunnelDomain = "cfargotunnel.com"
@@ -125,7 +126,7 @@ func (c *Client) DeleteFromTunnelConfiguration(ctx context.Context, logger logr.
 		for i, ingRule := range tunnelConfig.Ingress {
 			// we are not checking the service, since it is not important when deleting
 			if ingRule.Hostname == ing.Hostname && ingRule.Path == ing.Path {
-				err = c.deleteIngressFromTunnelConfigurationStructAndDeleteDNSRecord(ctx, logger, tunnelConfig, toDeleteConfig.Ingresses[i])
+				err = c.deleteIngressFromTunnelConfigurationStructAndDeleteDNSRecord(ctx, logger, tunnelConfig, i)
 				if err != nil {
 					logger.Error(err, "Failed to delete ingress rule from tunnel configuration")
 					return err
@@ -162,67 +163,46 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 		tunnelConfig.Ingress = make([]cloudflare.UnvalidatedIngressRule, 0)
 	}
 
-	newHostname := make(map[string]bool)
-	deletedHostname := make(map[string]bool)
-
 	for _, ing := range config.Ingresses {
-		newHostname[ing.Hostname] = true
-		deletedHostname[ing.Hostname] = true
-
-		for _, ingRule := range tc.Config.Ingress {
+		is_new := true
+		for _, ingRule := range tunnelConfig.Ingress {
 			// is it new hostname?
 			// if so, we should add it to the configuration
-			if ingRule.Hostname == ing.Hostname {
-				newHostname[ing.Hostname] = false
-				deletedHostname[ing.Hostname] = false
+			if ingRule.Hostname == ing.Hostname && ingRule.Path == ing.Path && ingRule.Service == ing.Service {
+				is_new = false
+				break
+			}
+		}
+		if is_new {
+			err = c.addNewIngressToTunnelConfigurationStructAndCreateDNSRecord(ctx, logger, tunnelConfig, ing)
+			if err != nil {
+				logger.Error(err, "Failed to add new ingress rule to tunnel configuration")
+				return err
 			}
 
-			// is it the same rule? -> skip
-			if ingRule.Hostname == ing.Hostname && ingRule.Path == ing.Path && ingRule.Service == ing.Service {
-				continue
-			}
+			tunnelConfigUpdated = true
 		}
 	}
 
 	// delete hostnames
-	for hostname, isDeleted := range deletedHostname {
-		if !isDeleted {
-			continue
-		}
-
-		for i, ing := range config.Ingresses {
-			if ing.Hostname == hostname && !newHostname[ing.Hostname] {
-				err = c.deleteIngressFromTunnelConfigurationStructAndDeleteDNSRecord(ctx, logger, tunnelConfig, config.Ingresses[i])
-				if err != nil {
-					logger.Error(err, "Failed to delete ingress rule from tunnel configuration")
-					return err
-				}
-
-				tunnelConfigUpdated = true
-
+	for tc_ingress_idx, ingRule := range tunnelConfig.Ingress {
+		still_exists := false
+		for _, ing := range config.Ingresses {
+			// is it new hostname?
+			// if so, we should add it to the configuration
+			if ingRule.Hostname == ing.Hostname && ingRule.Path == ing.Path && ingRule.Service == ing.Service {
+				still_exists = true
 				break
 			}
 		}
-	}
-
-	// create new hostnames
-	for hostname, isNew := range newHostname {
-		if !isNew {
-			continue
-		}
-
-		for i, ing := range config.Ingresses {
-			if ing.Hostname == hostname {
-				err = c.addNewIngressToTunnelConfigurationStructAndCreateDNSRecord(ctx, logger, tunnelConfig, config.Ingresses[i])
-				if err != nil {
-					logger.Error(err, "Failed to add new ingress rule to tunnel configuration")
-					return err
-				}
-
-				tunnelConfigUpdated = true
-
-				break
+		if !still_exists {
+			err = c.deleteIngressFromTunnelConfigurationStructAndDeleteDNSRecord(ctx, logger, tunnelConfig, tc_ingress_idx)
+			if err != nil {
+				logger.Error(err, "Failed to delete ingress rule from tunnel configuration")
+				return err
 			}
+
+			tunnelConfigUpdated = true
 		}
 	}
 
@@ -271,24 +251,16 @@ func (c *Client) addNewIngressToTunnelConfigurationStructAndCreateDNSRecord(ctx 
 	return nil
 }
 
-func (c *Client) deleteIngressFromTunnelConfigurationStructAndDeleteDNSRecord(ctx context.Context, logger logr.Logger, tunnelConfig *cloudflare.TunnelConfiguration, ingress IngressConfig) error {
+func (c *Client) deleteIngressFromTunnelConfigurationStructAndDeleteDNSRecord(ctx context.Context, logger logr.Logger, tunnelConfig *cloudflare.TunnelConfiguration, index int) error {
 	logger.Info("Deleting ingress rule from tunnel configuration")
 
-	var idx int
-	for i, rule := range tunnelConfig.Ingress {
-		// do not check the service, since it is not important when deleting
-		if rule.Hostname == ingress.Hostname && rule.Path == ingress.Path {
-			idx = i
-			break
-		}
-	}
-
 	// remove idx-th element from the slice
-	tunnelConfig.Ingress = append(tunnelConfig.Ingress[:idx], tunnelConfig.Ingress[idx+1:]...)
+	hostname := tunnelConfig.Ingress[index].Hostname
+	tunnelConfig.Ingress = append(tunnelConfig.Ingress[:index], tunnelConfig.Ingress[index+1:]...)
 
 	logger.Info("Deleted ingress rule from tunnel configuration, deleting DNS record")
 
-	err := c.deleteDNSRecord(ctx, logger, ingress)
+	err := c.deleteDNSRecord(ctx, logger, hostname)
 	if err != nil {
 		logger.Error(err, "Failed to delete DNS record")
 		return err
@@ -351,7 +323,7 @@ func (c *Client) createDNSRecord(ctx context.Context, logger logr.Logger, ingres
 	return nil
 }
 
-func (c *Client) deleteDNSRecord(ctx context.Context, logger logr.Logger, ingress IngressConfig) error {
+func (c *Client) deleteDNSRecord(ctx context.Context, logger logr.Logger, hostname string) error {
 	logger.Info("Deleting new DNS record")
 
 	// get the zone id
@@ -363,7 +335,7 @@ func (c *Client) deleteDNSRecord(ctx context.Context, logger logr.Logger, ingres
 
 	zoneID := ""
 	for _, zone := range zones {
-		if strings.HasSuffix(ingress.Hostname, zone.Name) {
+		if strings.HasSuffix(hostname, zone.Name) {
 			zoneID = zone.ID
 			break
 		}
@@ -389,7 +361,7 @@ func (c *Client) deleteDNSRecord(ctx context.Context, logger logr.Logger, ingres
 	}
 
 	for _, record := range records {
-		if record.Name == ingress.Hostname {
+		if record.Name == hostname {
 			err = c.cloudflareAPI.DeleteDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), record.ID)
 			if err != nil {
 				logger.Error(err, "Failed to delete DNS record")
