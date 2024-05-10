@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"context"
 	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/go-logr/logr"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -16,7 +15,7 @@ type IngressControllerOptions struct {
 	CloudflaredConfig   CloudflaredConfig
 }
 
-func RegisterIngressController(logger logr.Logger, mgr manager.Manager, options IngressControllerOptions) error {
+func RegisterIngressController(logger logr.Logger, mgr manager.Manager, options IngressControllerOptions) (*IngressController, error) {
 	controller := NewIngressController(logger.WithName("ingress-controller"), mgr.GetClient(), options.TunnelClient, options.IngressClassName, options.ControllerClassName, options.CloudflaredConfig)
 	err := builder.
 		ControllerManagedBy(mgr).
@@ -25,20 +24,8 @@ func RegisterIngressController(logger logr.Logger, mgr manager.Manager, options 
 
 	if err != nil {
 		logger.WithName("register-controller").Error(err, "could not register ingress controller")
-		return err
+		return nil, err
 	}
 
-	err = controller.ensureCloudflareTunnelExists(context.Background(), logger)
-	if err != nil {
-		logger.Error(err, "failed to ensure cloudflare tunnel exists")
-		return err
-	}
-
-	err = controller.ensureCloudflaredDeploymentExists(context.Background(), logger)
-	if err != nil {
-		logger.Error(err, "failed to ensure cloudflared deployment exists")
-		return err
-	}
-
-	return nil
+	return controller, nil
 }

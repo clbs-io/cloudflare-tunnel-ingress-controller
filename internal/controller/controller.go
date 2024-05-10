@@ -55,7 +55,7 @@ func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	err = c.ensureCloudflaredDeploymentExists(ctx, reqLogger)
+	err = c.EnsureCloudflaredDeploymentExists(ctx, reqLogger)
 	if err != nil {
 		reqLogger.Error(err, "failed to ensure cloudflared deployment exists")
 		return ctrl.Result{}, err

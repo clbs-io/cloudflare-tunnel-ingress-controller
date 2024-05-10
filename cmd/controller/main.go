@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"github.com/cloudflare/cloudflare-go"
 	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/controller"
@@ -11,9 +12,12 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sync"
 	"syscall"
+	"time"
 )
 
 var (
@@ -60,7 +64,7 @@ func main() {
 
 	tunnelClient := tunnel.NewClient(cloudflareAPI, cloudflareAccountID, cloudflareTunnelName, logger)
 
-	err = controller.RegisterIngressController(logger, mgr, controller.IngressControllerOptions{
+	ctrlr, err := controller.RegisterIngressController(logger, mgr, controller.IngressControllerOptions{
 		IngressClassName:    ingressClassName,
 		ControllerClassName: controllerClassName,
 		TunnelClient:        tunnelClient,
@@ -74,11 +78,45 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = mgr.Start(ctx)
+	err = tunnelClient.EnsureTunnelExists(ctx)
 	if err != nil {
-		logger.Error(err, "could not start manager")
+		logger.Error(err, "could not ensure tunnel exists")
+		stop()
 		os.Exit(1)
 	}
+
+	wg := &sync.WaitGroup{}
+	go func() {
+		defer wg.Done()
+		wg.Add(1)
+
+		err = mgr.Start(ctx)
+		if err != nil {
+			logger.Error(err, "could not start manager")
+			os.Exit(1)
+		}
+	}()
+
+	for {
+		err = ctrlr.EnsureCloudflaredDeploymentExists(ctx, logger)
+		if !errors.Is(err, &cache.ErrCacheNotStarted{}) && err != nil {
+			logger.Error(err, "could not ensure cloudflared deployment exists")
+			stop()
+			os.Exit(1)
+		}
+
+		if err == nil {
+			break
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+
+	wg.Wait()
 }
 
 func loadConfig(logger logr.Logger) {

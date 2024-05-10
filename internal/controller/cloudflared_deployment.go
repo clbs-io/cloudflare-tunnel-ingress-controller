@@ -20,7 +20,7 @@ type cloudflaredDeploymentConfig struct {
 	tunnelToken                string
 }
 
-func (c *IngressController) ensureCloudflaredDeploymentExists(ctx context.Context, logger logr.Logger) error {
+func (c *IngressController) EnsureCloudflaredDeploymentExists(ctx context.Context, logger logr.Logger) error {
 	logger.Info("Ensuring Cloudflared Deployment exists")
 
 	foundDeployment := &appsv1.Deployment{}
