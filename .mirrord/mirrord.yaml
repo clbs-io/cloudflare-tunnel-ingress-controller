@@ -1,0 +1,6 @@
+target:
+  path: deployment/cloudflare-tunnel-ingress-controller
+  namespace: cloudflare-tunnel-system
+
+agent:
+  namespace: cloudflare-tunnel-system
