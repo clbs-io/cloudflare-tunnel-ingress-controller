@@ -83,9 +83,16 @@ func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	err = c.ensureCloudflareTunnelConfiguration(ctx, reqLogger, ing)
+	if err != nil {
+		reqLogger.Error(err, "failed to ensure tunnel configuration")
+		return ctrl.Result{}, err
+
+	}
+
 	// TODO
 	// - update tunnel configuration based on ingress resources
-	// - update ingress resource status
+	// - emit Kubernetes events based on the status of the tunnel
 
 	return ctrl.Result{}, nil
 }
