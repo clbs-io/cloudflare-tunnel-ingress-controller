@@ -90,10 +90,6 @@ func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	}
 
-	// TODO
-	// - update tunnel configuration based on ingress resources
-	// - emit Kubernetes events based on the status of the tunnel
-
 	return ctrl.Result{}, nil
 }
 
