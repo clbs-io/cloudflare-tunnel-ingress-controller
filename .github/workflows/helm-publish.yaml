@@ -1,0 +1,39 @@
+name: Publish Helm chart
+
+on:
+  workflow_run:
+    workflows: [ "Set Version" ]
+    types: [ completed ]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          helm-version: "latest"
+
+      - name: Helm Registry Login
+        run: echo "${{ secrets.HELM_PASSWORD }}" | helm registry login ${{ secrets.HELM_REPOSITORY }} --username ${{ secrets.HELM_USERNAME }} --password-stdin
+        env:
+          HELM_REPOSITORY: ${{ secrets.HELM_REPOSITORY }}
+          HELM_USERNAME: ${{ secrets.HELM_USERNAME }}
+          HELM_PASSWORD: ${{ secrets.HELM_PASSWORD }}
+
+      - name: Package Helm chart
+        run: helm package ./charts/cloudflare-tunnel-ingress-controller
+        working-directory: ./charts/cloudflare-tunnel-ingress-controller
+
+      - name: Publish Helm chart
+        run: helm push ./charts/cloudflare-tunnel-ingress-controller/*.tgz ${{ secrets.HELM_REPOSITORY }}
+        env:
+          HELM_REPOSITORY: ${{ secrets.HELM_REPOSITORY }}
+          HELM_USERNAME: ${{ secrets.HELM_USERNAME }}
+          HELM_PASSWORD: ${{ secrets.HELM_PASSWORD }}
