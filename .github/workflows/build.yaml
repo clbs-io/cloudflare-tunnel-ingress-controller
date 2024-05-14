@@ -1,11 +1,9 @@
 name: Build Docker Image
 
 on:
-  push:
-    branches:
-      - '*'
-    tags:
-      - v*
+  workflow_run:
+    workflows: ["Set Version"]
+    types: [completed]
 
 jobs:
   build:
@@ -20,6 +18,9 @@ jobs:
         with:
           ref: ${{ github.head_ref }} # checkout the correct branch name
           fetch-tags: true
+
+      - id: set-env
+        run: echo "version=`echo $(git describe --tags --abbrev=0 --exact-match || echo 'v0.0.0')`" >> $GITHUB_OUTPUT
 
       - name: setup qemu
         uses: docker/setup-qemu-action@v3
@@ -42,16 +43,17 @@ jobs:
             ghcr.io/${{ github.repository }}
           tags: |
             type=ref,event=branch,suffix=-${{ github.sha }}
-            type=ref,event=pr
             type=sha,format=long
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
-            type=semver,pattern={{raw}},enable=${{ github.ref_type == 'tag' }}
+            type=raw,value=${{ steps.set-env.outputs.version }}
 
       - name: build and push
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64/v8,linux/arm/v7
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ steps.set-env.outputs.version }}

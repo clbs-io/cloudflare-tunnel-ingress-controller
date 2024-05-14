@@ -22,6 +22,10 @@ import (
 )
 
 var (
+	Version = "dev"
+)
+
+var (
 	ingressClassName    string
 	controllerClassName string
 
@@ -36,7 +40,7 @@ var (
 
 func main() {
 	loggerOpts := &logzap.Options{
-		Development: true, // a sane default
+		Development: false,
 		ZapOpts:     []zap.Option{zap.AddCaller()},
 	}
 
@@ -44,7 +48,7 @@ func main() {
 
 	logger := ctrl.Log.WithName("main")
 
-	logger.Info("Starting Cloudflare Tunnel Ingress Controller")
+	logger.Info("Starting Cloudflare Tunnel Ingress Controller, version: "+Version, "version", Version)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
