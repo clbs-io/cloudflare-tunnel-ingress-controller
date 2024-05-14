@@ -72,14 +72,7 @@ func (c *Client) EnsureTunnelExists(ctx context.Context) error {
 	}
 
 	if tunnel.Name != c.tunnelName {
-		// TODO: rename tunnel back to the original name
-
-		//tunnel, err := c.cloudflareAPI.UpdateTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.tunnelID), cloudflare.TunnelConfigurationParams{
-		//	TunnelID: c.tunnelID,
-		//	Config: cloudflare.TunnelConfiguration{
-		//		Name: c.tunnelName,
-		//	}
-		//})
+		c.logger.Error(errors.New("tunnel name mismatch"), "Tunnel name mismatch, this will force creation new tunnel, please review your configuration", "expected", c.tunnelName, "actual", tunnel.Name)
 	}
 
 	c.logger.Info("Tunnel exists")
