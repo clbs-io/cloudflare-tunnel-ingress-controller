@@ -25,7 +25,6 @@ jobs:
 
       - name: Package Helm chart
         run: helm package ./charts/cloudflare-tunnel-ingress-controller
-        working-directory: ./charts/cloudflare-tunnel-ingress-controller
 
       - name: Publish Helm chart
         run: helm push ./charts/cloudflare-tunnel-ingress-controller/*.tgz oci://${{ secrets.HELM_REGISTRY }}
