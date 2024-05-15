@@ -24,7 +24,8 @@ jobs:
         run: echo "${{ secrets.HELM_PASSWORD }}" | helm registry login ${{ secrets.HELM_REGISTRY }} --username ${{ secrets.HELM_USERNAME }} --password-stdin
 
       - name: Package Helm chart
-        run: helm package ./charts/cloudflare-tunnel-ingress-controller
+        run: helm package .
+        working-directory: ./charts/cloudflare-tunnel-ingress-controller
 
       - name: Publish Helm chart
         run: helm push ./charts/cloudflare-tunnel-ingress-controller/*.tgz oci://${{ secrets.HELM_REGISTRY }}
