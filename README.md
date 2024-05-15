@@ -1,12 +1,12 @@
 # Cloudflare Tunnel Ingress Controller
 
-As the name suggests, this a Kubernetes Ingress Controller that uses Cloudflare Tunnel to expose services to the internet. This controller is based on the [Kubernetes Ingress Controller for Cloudflare Argo Tunnel](https://github.com/cloudflare/cloudflare-ingress-controller) and community made project [STRRL / cloudflare-tunnel-ingress-controller](https://github.com/STRRL/cloudflare-tunnel-ingress-controller).
+As the name suggests, this is a Kubernetes Ingress Controller that uses Cloudflare Tunnel to expose services to the Internet. This controller is based on the [Kubernetes Ingress Controller for Cloudflare Argo Tunnel](https://github.com/cloudflare/cloudflare-ingress-controller) and the community made project [STRRL / cloudflare-tunnel-ingress-controller](https://github.com/STRRL/cloudflare-tunnel-ingress-controller).
 
 ## How it works
 
 ![How it works](assets/how-it-works.png)
 
-1. The Ingress Controller on startup creates a new Cloudflare Tunnel or uses existing one.
+1. The Ingress Controller creates a new Cloudflare Tunnel on startup or uses an existing one.
 2. The Ingress Controller watches for Ingress resources in the Kubernetes cluster.
 3. When a new Ingress resource is created, the Ingress Controller creates a new route in the Cloudflare Tunnel and creates a DNS CNAME record pointing to the Tunnel hostname.
 
@@ -14,14 +14,14 @@ As the name suggests, this a Kubernetes Ingress Controller that uses Cloudflare 
 
 ### Setup
 
-Before installing, you need a Cloudflare API token, to create one, go to [Cloudflare / Profile / API Tokens](https://dash.cloudflare.com/profile/api-tokens).
+Before installing, you need a Cloudflare API token. To create a token, go to [Cloudflare / Profile / API Tokens](https://dash.cloudflare.com/profile/api-tokens).
 
-You will need to allow account-wide access to Cloudflare Tunnel and DNS:Edit for the zone you want to manage (can be multiple or all, that you have).
+You must allow account-wide access to Cloudflare Tunnel and DNS:Edit for the zones that you want to manage (can be multiple or all that you have).
 
 > [!IMPORTANT]
-> Setup correct permissions for the API token:
-> - Set correct account for the token, do not use option *All accounts*, unless you have to!
-> - Set correct zone for the token, do not use option *All zones*, unless you have to!
+> Set up correct permissions for the API token:
+> - Set a correct account for the token. Do not use the option *All accounts*, unless you have to!
+> - Set a correct zone for the token. Do not use the option *All zones*, unless you have to!
 
 ![Screenshot from Cloudflare Dashboard, for options when creating new Cloudflare API Token](assets/create-cloudflare-api-token.png)
 
@@ -35,7 +35,7 @@ You will also need your Cloudflare Account ID, for DNS.
 
 ### Installation
 
-Helm chart is stored on our company Helm repository, in the OCI format, no need to add a Helm repository.
+The Helm chart is stored in the OCI format in our company Helm repository, so there is no need to add another Helm repository.
 
 ```shell
 export CLOUDFLARE_ACCOUNT_ID=your-cloudflare-account-id
