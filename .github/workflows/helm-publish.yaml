@@ -28,4 +28,4 @@ jobs:
         working-directory: ./charts/cloudflare-tunnel-ingress-controller
 
       - name: Publish Helm chart
-        run: helm push ./charts/cloudflare-tunnel-ingress-controller/*.tgz ${{ secrets.HELM_REGISTRY }}
+        run: helm push ./charts/cloudflare-tunnel-ingress-controller/*.tgz oci://${{ secrets.HELM_REGISTRY }}
