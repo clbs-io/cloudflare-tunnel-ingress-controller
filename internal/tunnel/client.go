@@ -125,6 +125,7 @@ func (c *Client) DeleteFromTunnelConfiguration(ctx context.Context, logger logr.
 					logger.Error(err, "Failed to delete ingress rule from tunnel configuration")
 					return err
 				}
+				break
 			}
 		}
 	}
@@ -179,7 +180,9 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 	}
 
 	// delete hostnames
-	for tc_ingress_idx, ingRule := range tunnelConfig.Ingress {
+	for tc_ingress_idx := len(tunnelConfig.Ingress) - 1; tc_ingress_idx >= 0; tc_ingress_idx-- {
+		ingRule := tunnelConfig.Ingress[tc_ingress_idx]
+
 		still_exists := false
 		for _, ing := range config.Ingresses {
 			// is it new hostname?
@@ -197,16 +200,6 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 			}
 
 			tunnelConfigUpdated = true
-		}
-	}
-
-	if len(tunnelConfig.Ingress) > 0 {
-		tunnelConfig.Ingress = append(tunnelConfig.Ingress, cloudflare.UnvalidatedIngressRule{Service: "http_status:404"})
-	}
-
-	for i := 0; i < len(tunnelConfig.Ingress); i++ {
-		if tunnelConfig.Ingress[i].Service == "http_status:404" && i != len(tunnelConfig.Ingress)-1 {
-			tunnelConfig.Ingress = append(tunnelConfig.Ingress[:i], tunnelConfig.Ingress[i+1:]...)
 		}
 	}
 
