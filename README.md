@@ -66,7 +66,7 @@ export CLOUDFLARE_ACCOUNT_ID=<your-cloudflare-account-id>
 helm upgrade --install \
   --namespace cloudflare-tunnel-system --create-namespace \
   cloudflare-tunnel-ingress oci://registry.clbs.io/cloudflare-tunnel-ingress-controller/cloudflare-tunnel-ingress-controller \
-  --set config. cloudflare.apiToken.existingSecret.name=cloudflare-api-token \
+  --set config.cloudflare.apiToken.existingSecret.name=cloudflare-api-token \
   --set config.cloudflare.accountID=$CLOUDFLARE_ACCOUNT_ID \
   --set config.cloudflare.tunnelName=tunnel-ingress-demo
 ```
