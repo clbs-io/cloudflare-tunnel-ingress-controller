@@ -2,6 +2,8 @@ package controller
 
 import (
 	"context"
+
+	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/go-logr/logr"
 	networkingv1 "k8s.io/api/networking/v1"
 )
@@ -30,8 +32,8 @@ func (c *IngressController) ensureFinalizers(ctx context.Context, logger logr.Lo
 	return nil
 }
 
-func (c *IngressController) finalizeIngress(ctx context.Context, logger logr.Logger, ing *networkingv1.Ingress) error {
-	err := c.deleteTunnelConfigurationForIngress(ctx, logger, ing)
+func (c *IngressController) finalizeIngress(ctx context.Context, logger logr.Logger, tunnelConfig *tunnel.Config, ing *networkingv1.Ingress) error {
+	err := c.deleteTunnelConfigurationForIngress(ctx, logger, tunnelConfig, ing.UID)
 	if err != nil {
 		logger.Error(err, "Failed to delete tunnel configuration for Ingress")
 		return err

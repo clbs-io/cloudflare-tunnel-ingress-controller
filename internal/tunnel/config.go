@@ -2,13 +2,19 @@ package tunnel
 
 import (
 	"time"
+
+	"k8s.io/apimachinery/pkg/types"
 )
 
 // Config represents the configuration for the Cloudflare Tunnel.
 type Config struct {
 	// Ingresses is a list of Ingress resources to configure the Cloudflare Tunnel with.
-	Ingresses []*IngressConfig
+	// The key is the UID of the Ingress resource.
+	Ingresses map[types.UID]*IngressRecords
 }
+
+// List of records for single ingress resource.
+type IngressRecords = []*IngressConfig
 
 // IngressConfig represents the configuration for a single Ingress resource.
 type IngressConfig struct {

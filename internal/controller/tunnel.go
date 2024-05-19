@@ -37,12 +37,10 @@ func (c *IngressController) ensureCloudflareTunnelExists(ctx context.Context, lo
 	return nil
 }
 
-func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Context, logger logr.Logger, ingress *networkingv1.Ingress) error {
+func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Context, logger logr.Logger, tunnelConfig *tunnel.Config, ingress *networkingv1.Ingress) error {
 	logger.Info("Ensuring Cloudflare Tunnel configuration")
 
-	cfg := tunnel.Config{
-		Ingresses: make([]*tunnel.IngressConfig, 0),
-	}
+	cfg := tunnel.IngressRecords{}
 
 	for _, rule := range ingress.Spec.Rules {
 		if rule.HTTP == nil {
@@ -213,18 +211,20 @@ func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Cont
 				tunnelIng.OriginConfig = origin_config
 			}
 
-			cfg.Ingresses = append(cfg.Ingresses, &tunnelIng)
+			cfg = append(cfg, &tunnelIng)
 		}
 	}
 
 	// Add a default 404 service if there is at least one ingress and the last one is not a 404
-	if cnt := len(cfg.Ingresses); cnt > 0 {
-		if cfg.Ingresses[cnt-1].Service != "http_status:404" {
-			cfg.Ingresses = append(cfg.Ingresses, &tunnel.IngressConfig{Service: "http_status:404"})
+	if cnt := len(cfg); cnt > 0 {
+		if cfg[cnt-1].Service != "http_status:404" {
+			cfg = append(cfg, &tunnel.IngressConfig{Service: "http_status:404"})
 		}
 	}
 
-	err := c.tunnelClient.EnsureTunnelConfiguration(ctx, logger, cfg)
+	tunnelConfig.Ingresses[ingress.UID] = &cfg
+
+	err := c.tunnelClient.EnsureTunnelConfiguration(ctx, logger, tunnelConfig)
 	if err != nil {
 		logger.Error(err, "Failed to ensure Cloudflare Tunnel configuration")
 		return err
@@ -233,27 +233,12 @@ func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Cont
 	return nil
 }
 
-func (c *IngressController) deleteTunnelConfigurationForIngress(ctx context.Context, logger logr.Logger, ingress *networkingv1.Ingress) error {
+func (c *IngressController) deleteTunnelConfigurationForIngress(ctx context.Context, logger logr.Logger, tunnelConfig *tunnel.Config, ingressUid types.UID) error {
 	logger.Info("Deleting tunnel configuration for Ingress resource")
 
-	cfg := tunnel.Config{}
-	cfg.Ingresses = make([]*tunnel.IngressConfig, 0)
-
-	for _, rule := range ingress.Spec.Rules {
-		if rule.HTTP == nil {
-			continue
-		}
-
-		for _, path := range rule.HTTP.Paths {
-			if path.PathType == nil {
-				continue
-			}
-
-			cfg.Ingresses = append(cfg.Ingresses, &tunnel.IngressConfig{Hostname: rule.Host, Path: path.Path})
-		}
-	}
-
-	err := c.tunnelClient.DeleteFromTunnelConfiguration(ctx, logger, cfg)
+	ing := tunnelConfig.Ingresses[ingressUid]
+	delete(tunnelConfig.Ingresses, ingressUid)
+	err := c.tunnelClient.DeleteFromTunnelConfiguration(ctx, logger, ing)
 	if err != nil {
 		logger.Error(err, "Failed to delete from tunnel configuration")
 		return err
