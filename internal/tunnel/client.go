@@ -130,6 +130,8 @@ func (c *Client) DeleteFromTunnelConfiguration(ctx context.Context, logger logr.
 		}
 	}
 
+	c.flush404IfLast(tunnelConfig)
+
 	_, err = c.cloudflareAPI.UpdateTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelConfigurationParams{
 		TunnelID: c.tunnelID,
 		Config:   *tunnelConfig,
@@ -185,6 +187,11 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 	for tc_ingress_idx := len(tunnelConfig.Ingress) - 1; tc_ingress_idx >= 0; tc_ingress_idx-- {
 		tunnelRecord := tunnelConfig.Ingress[tc_ingress_idx]
 
+		if tunnelRecord.Service == "http_status:404" {
+			// Do not delete http_status:404 rule
+			continue
+		}
+
 		still_exists := false
 		for _, ingress := range config.Ingresses {
 			for _, ingressRecord := range *ingress {
@@ -211,6 +218,8 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 	}
 
 	if tunnelConfigUpdated {
+		c.flush404IfLast(tunnelConfig)
+
 		_, err = c.cloudflareAPI.UpdateTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelConfigurationParams{
 			TunnelID: c.tunnelID,
 			Config:   *tunnelConfig,
@@ -273,7 +282,17 @@ func (c *Client) addNewIngressToTunnelConfigurationStructAndCreateDNSRecord(ctx 
 		tmp.Http2Origin = ingress.OriginConfig.Http2Origin
 	}
 
-	tunnelConfig.Ingress = append(tunnelConfig.Ingress, newIngressRule)
+	last_id := len(tunnelConfig.Ingress) - 1
+	has_http_status_404 := last_id >= 0 && tunnelConfig.Ingress[last_id].Service == "http_status:404"
+	if has_http_status_404 {
+		// Keep the http_status:404 rule at the end (if it exists)
+		tunnelConfig.Ingress = append(tunnelConfig.Ingress[:last_id], newIngressRule, tunnelConfig.Ingress[last_id])
+	} else {
+		// Add the new rule at the end and add a http_status:404 rule after it
+		tunnelConfig.Ingress = append(tunnelConfig.Ingress, newIngressRule, cloudflare.UnvalidatedIngressRule{
+			Service: "http_status:404",
+		})
+	}
 
 	logger.Info("Added new ingress rule to tunnel configuration, creating new DNS record")
 	err := c.createDNSRecord(ctx, logger, ingress)
@@ -408,4 +427,10 @@ func (c *Client) deleteDNSRecord(ctx context.Context, logger logr.Logger, hostna
 	}
 
 	return nil
+}
+
+func (c *Client) flush404IfLast(tunnelConfig *cloudflare.TunnelConfiguration) {
+	if len(tunnelConfig.Ingress) == 1 && tunnelConfig.Ingress[0].Service == "http_status:404" {
+		tunnelConfig.Ingress = make([]cloudflare.UnvalidatedIngressRule, 0)
+	}
 }

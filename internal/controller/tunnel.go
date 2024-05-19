@@ -215,13 +215,6 @@ func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Cont
 		}
 	}
 
-	// Add a default 404 service if there is at least one ingress and the last one is not a 404
-	if cnt := len(cfg); cnt > 0 {
-		if cfg[cnt-1].Service != "http_status:404" {
-			cfg = append(cfg, &tunnel.IngressConfig{Service: "http_status:404"})
-		}
-	}
-
 	tunnelConfig.Ingresses[ingress.UID] = &cfg
 
 	err := c.tunnelClient.EnsureTunnelConfiguration(ctx, logger, tunnelConfig)
