@@ -4,21 +4,22 @@ import (
 	"context"
 	"errors"
 	"flag"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
 	"github.com/cloudflare/cloudflare-go"
 	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/controller"
 	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/go-logr/logr"
 	"go.uber.org/zap"
-	"os"
-	"os/signal"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	logzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sync"
-	"syscall"
-	"time"
 )
 
 var (
