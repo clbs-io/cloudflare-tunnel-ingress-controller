@@ -37,9 +37,7 @@ func (c *IngressController) ensureCloudflareTunnelExists(ctx context.Context, lo
 	return nil
 }
 
-func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Context, logger logr.Logger, tunnelConfig *tunnel.Config, ingress *networkingv1.Ingress) error {
-	logger.Info("Ensuring Cloudflare Tunnel configuration")
-
+func (c *IngressController) harvestRules(ctx context.Context, logger logr.Logger, tunnelConfig *tunnel.Config, ingress *networkingv1.Ingress) error {
 	cfg := tunnel.IngressRecords{}
 
 	for _, rule := range ingress.Spec.Rules {
@@ -217,7 +215,18 @@ func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Cont
 
 	tunnelConfig.Ingresses[ingress.UID] = &cfg
 
-	err := c.tunnelClient.EnsureTunnelConfiguration(ctx, logger, tunnelConfig)
+	return nil
+}
+
+func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Context, logger logr.Logger, tunnelConfig *tunnel.Config, ingress *networkingv1.Ingress) error {
+	logger.Info("Ensuring Cloudflare Tunnel configuration")
+
+	err := c.harvestRules(ctx, logger, tunnelConfig, ingress)
+	if err != nil {
+		return err
+	}
+
+	err = c.tunnelClient.EnsureTunnelConfiguration(ctx, logger, tunnelConfig)
 	if err != nil {
 		logger.Error(err, "Failed to ensure Cloudflare Tunnel configuration")
 		return err

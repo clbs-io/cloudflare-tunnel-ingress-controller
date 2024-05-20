@@ -27,8 +27,9 @@ type IngressController struct {
 
 	cloudflaredDeploymentConfig cloudflaredDeploymentConfig
 
-	tunnelConfigLck sync.Mutex
-	tunnelConfig    *tunnel.Config
+	tunnelConfigLck         sync.Mutex
+	tunnelConfigInitialized bool
+	tunnelConfig            *tunnel.Config
 }
 
 type CloudflaredConfig struct {
@@ -47,7 +48,8 @@ func NewIngressController(logger logr.Logger, client client.Client, tunnelClient
 			cloudflaredImage:           cloudflaredConfig.CloudflaredImage,
 			cloudflaredImagePullPolicy: cloudflaredConfig.CloudflaredImagePullPolicy,
 		},
-		tunnelConfigLck: sync.Mutex{},
+		tunnelConfigLck:         sync.Mutex{},
+		tunnelConfigInitialized: false,
 		tunnelConfig: &tunnel.Config{
 			Ingresses: make(map[types.UID]*tunnel.IngressRecords),
 		},
@@ -90,9 +92,34 @@ func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, nil
 	}
 
+	c.tunnelConfigLck.Lock()
+	defer c.tunnelConfigLck.Unlock()
+
+	// Load all ingress resources on the first reconcile
+	if !c.tunnelConfigInitialized {
+		c.tunnelConfigInitialized = true
+		ingress_list := &networkingv1.IngressList{}
+		err = c.client.List(ctx, ingress_list)
+		if err != nil {
+			reqLogger.Error(err, "failed to list ingress resources")
+		} else {
+			for _, ing := range ingress_list.Items {
+				if ing.Spec.IngressClassName != nil && *ing.Spec.IngressClassName != c.ingressClassName {
+					continue
+				}
+				if ing.GetDeletionTimestamp() != nil {
+					continue
+				}
+				err = c.harvestRules(ctx, reqLogger, c.tunnelConfig, &ing)
+				if err != nil {
+					reqLogger.Error(err, "failed to harvest rules")
+					return ctrl.Result{}, err
+				}
+			}
+		}
+	}
+
 	if ingress.GetDeletionTimestamp() != nil {
-		c.tunnelConfigLck.Lock()
-		defer c.tunnelConfigLck.Unlock()
 		err = c.finalizeIngress(ctx, reqLogger, c.tunnelConfig, ingress)
 		return ctrl.Result{}, err
 	}
@@ -103,8 +130,6 @@ func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	c.tunnelConfigLck.Lock()
-	defer c.tunnelConfigLck.Unlock()
 	err = c.ensureCloudflareTunnelConfiguration(ctx, reqLogger, c.tunnelConfig, ingress)
 	if err != nil {
 		reqLogger.Error(err, "failed to ensure tunnel configuration")
