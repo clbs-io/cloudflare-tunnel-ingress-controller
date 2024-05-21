@@ -6,7 +6,7 @@ toolchain go1.22.3
 
 require (
 	github.com/cloudflare/cloudflare-go v0.95.0
-	github.com/go-logr/logr v1.4.1
+	github.com/go-logr/logr v1.4.2
 	go.uber.org/zap v1.27.0
 	k8s.io/api v0.30.1
 	k8s.io/apimachinery v0.30.1
