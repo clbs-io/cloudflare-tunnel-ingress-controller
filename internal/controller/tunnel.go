@@ -219,8 +219,6 @@ func (c *IngressController) harvestRules(ctx context.Context, logger logr.Logger
 }
 
 func (c *IngressController) ensureCloudflareTunnelConfiguration(ctx context.Context, logger logr.Logger, tunnelConfig *tunnel.Config, ingress *networkingv1.Ingress) error {
-	logger.Info("Ensuring Cloudflare Tunnel configuration")
-
 	err := c.harvestRules(ctx, logger, tunnelConfig, ingress)
 	if err != nil {
 		return err
