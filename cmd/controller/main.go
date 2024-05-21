@@ -10,7 +10,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/cloudflare/cloudflare-go"
+	"github.com/cloudflare/cloudflare-go/v2"
+	"github.com/cloudflare/cloudflare-go/v2/option"
 	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/controller"
 	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/go-logr/logr"
@@ -68,7 +69,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	cloudflareAPI, err := cloudflare.NewWithAPIToken(cloudflareAPIToken)
+	cloudflareAPI := cloudflare.NewClient(option.WithAPIToken(cloudflareAPIToken))
 	if err != nil {
 		logger.Error(err, "could not create cloudflare API client")
 		os.Exit(1)

@@ -6,9 +6,12 @@ import (
 	"encoding/hex"
 	"errors"
 	"strings"
-	"time"
 
-	"github.com/cloudflare/cloudflare-go"
+	"github.com/cloudflare/cloudflare-go/v2"
+	"github.com/cloudflare/cloudflare-go/v2/dns"
+	"github.com/cloudflare/cloudflare-go/v2/shared"
+	"github.com/cloudflare/cloudflare-go/v2/zero_trust"
+	"github.com/cloudflare/cloudflare-go/v2/zones"
 	"github.com/go-logr/logr"
 )
 
@@ -17,9 +20,9 @@ const tunnelDomain = "cfargotunnel.com"
 type Client struct {
 	logger logr.Logger
 
-	cloudflareAPI *cloudflare.API
-	accountID     string
-	tunnelName    string
+	cloudflareClient *cloudflare.Client
+	accountID        string
+	tunnelName       string
 
 	tunnelID    string
 	tunnelToken string
@@ -29,18 +32,29 @@ var (
 	dummy = struct{}{}
 )
 
-func NewClient(cloudflareAPI *cloudflare.API, accountID, tunnelName string, logger logr.Logger) *Client {
+func NewClient(cloudflareClient *cloudflare.Client, accountID string, tunnelName string, logger logr.Logger) *Client {
 	return &Client{
-		logger:        logger,
-		cloudflareAPI: cloudflareAPI,
-		accountID:     accountID,
-		tunnelName:    tunnelName,
+		logger:           logger,
+		cloudflareClient: cloudflareClient,
+		accountID:        accountID,
+		tunnelName:       tunnelName,
 	}
 }
 
 func (c *Client) GetTunnelToken(ctx context.Context) (string, error) {
 	if c.tunnelToken == "" {
-		return c.cloudflareAPI.GetTunnelToken(ctx, cloudflare.AccountIdentifier(c.accountID), c.tunnelID)
+		res, err := c.cloudflareClient.ZeroTrust.Tunnels.Token.Get(ctx, c.tunnelID, zero_trust.TunnelTokenGetParams{
+			AccountID: cloudflare.String(c.accountID),
+		})
+		if err != nil {
+			return "", err
+		}
+		switch t := (*res).(type) {
+		case shared.UnionString:
+			c.tunnelToken = string(t)
+		default:
+			return "", errors.New("unexpected response type")
+		}
 	}
 
 	return c.tunnelToken, nil
@@ -50,26 +64,28 @@ func (c *Client) EnsureTunnelExists(ctx context.Context) error {
 	if c.tunnelID == "" {
 		c.logger.Info("TunnelID not set, looking for an existing tunnel")
 
-		tunnels, _, err := c.cloudflareAPI.ListTunnels(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelListParams{})
-		if err != nil {
-			c.logger.Error(err, "Failed to list tunnels")
-			return err
-		}
-
-		for _, tunnel := range tunnels {
+		iter := c.cloudflareClient.ZeroTrust.Tunnels.ListAutoPaging(ctx, zero_trust.TunnelListParams{
+			AccountID: cloudflare.String(c.accountID),
+		})
+		for iter.Next() {
+			tunnel := iter.Current()
 			if tunnel.Name == c.tunnelName {
 				c.logger.Info("Cloudflare Tunnel found", "tunnelID", tunnel.ID)
 				c.tunnelID = tunnel.ID
 				return nil
 			}
 		}
+		if err := iter.Err(); err != nil {
+			return err
+		}
 
 		c.logger.Info("Cloudflare Tunnel not found, creating a new one")
-
 		return c.createTunnel(ctx)
 	}
 
-	tunnel, err := c.cloudflareAPI.GetTunnel(ctx, cloudflare.AccountIdentifier(c.accountID), c.tunnelID)
+	tunnel, err := c.cloudflareClient.ZeroTrust.Tunnels.Get(ctx, c.tunnelID, zero_trust.TunnelGetParams{
+		AccountID: cloudflare.String(c.accountID),
+	})
 	if err != nil {
 		c.logger.Error(err, "Failed to get the tunnel")
 		return err
@@ -93,10 +109,10 @@ func (c *Client) createTunnel(ctx context.Context) error {
 	}
 
 	hexSecret := hex.EncodeToString(secret)
-	tunnel, err := c.cloudflareAPI.CreateTunnel(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelCreateParams{
-		Name:      c.tunnelName,
-		Secret:    hexSecret,
-		ConfigSrc: "cloudflare",
+	tunnel, err := c.cloudflareClient.ZeroTrust.Tunnels.New(ctx, zero_trust.TunnelNewParams{
+		AccountID:    cloudflare.String(c.accountID),
+		Name:         cloudflare.String(c.tunnelName),
+		TunnelSecret: cloudflare.String(hexSecret),
 	})
 	if err != nil {
 		c.logger.Error(err, "Failed to create a tunnel")
@@ -125,33 +141,46 @@ func (c *Client) DeleteFromTunnelConfiguration(ctx context.Context, logger logr.
 }
 
 func (c *Client) deleteFromTunnelConfiguration(ctx context.Context, logger logr.Logger, ingressRecords *IngressRecords) error {
-	tc, err := c.cloudflareAPI.GetTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.accountID), c.tunnelID)
+	tc, err := c.cloudflareClient.ZeroTrust.Tunnels.Configurations.Get(ctx, c.tunnelID, zero_trust.TunnelConfigurationGetParams{
+		AccountID: cloudflare.String(c.accountID),
+	})
 	if err != nil {
 		logger.Error(err, "Failed to get tunnel configuration")
 		return err
 	}
 
-	tunnelConfig := &tc.Config
-	if tunnelConfig.Ingress == nil {
-		tunnelConfig.Ingress = make([]cloudflare.UnvalidatedIngressRule, 0)
+	switch t := (*tc).(type) {
+	case zero_trust.TunnelConfigurationGetResponseArray:
+		for _, tunnel := range t {
+			c.logger.Info("Tunnel configuration", "config", tunnel)
+		}
+	default:
+		return errors.New("unexpected response type")
+	}
+
+	tmp := zero_trust.TunnelConfigurationUpdateParamsConfig{}
+
+	tunnelConfig := tmp
+	if tunnelConfig.Ingress.Null {
+		tunnelConfig.Ingress = cloudflare.F(make([]zero_trust.TunnelConfigurationUpdateParamsConfigIngress, 0))
 	}
 
 	for _, ing := range *ingressRecords {
-		for i, ingRule := range tunnelConfig.Ingress {
+		for i, ingRule := range tunnelConfig.Ingress.Value {
 			// we are not checking the service, since it is not important when deleting
-			if ingRule.Hostname == ing.Hostname && ingRule.Path == ing.Path {
+			if ingRule.Hostname.Value == ing.Hostname && ingRule.Path.Value == ing.Path {
 				// remove idx-th element from the slice
-				tunnelConfig.Ingress = append(tunnelConfig.Ingress[:i], tunnelConfig.Ingress[i+1:]...)
+				tunnelConfig.Ingress.Value = append(tunnelConfig.Ingress.Value[:i], tunnelConfig.Ingress.Value[i+1:]...)
 				break
 			}
 		}
 	}
 
-	c.flush404IfLast(tunnelConfig)
+	c.flush404IfLast(&tunnelConfig)
 
-	_, err = c.cloudflareAPI.UpdateTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelConfigurationParams{
-		TunnelID: c.tunnelID,
-		Config:   *tunnelConfig,
+	_, err = c.cloudflareClient.ZeroTrust.Tunnels.Configurations.Update(ctx, c.tunnelID, zero_trust.TunnelConfigurationUpdateParams{
+		AccountID: cloudflare.String(c.accountID),
+		Config:    cloudflare.F(tunnelConfig),
 	})
 	if err != nil {
 		c.logger.Error(err, "Failed to update tunnel configuration", "tunnelConfig", tunnelConfig)
@@ -167,7 +196,7 @@ func (c *Client) deleteFromDns(ctx context.Context, logger logr.Logger, ingressR
 		return err
 	}
 
-	zones_recods_cache := make(map[string]*[]cloudflare.DNSRecord)
+	zones_recods_cache := make(map[string]*[]dns.Record)
 
 	for _, ingress := range *ingressRecords {
 		for zoneID, zoneName := range zone_map {
@@ -175,10 +204,14 @@ func (c *Client) deleteFromDns(ctx context.Context, logger logr.Logger, ingressR
 				continue
 			}
 			if zone_records, ok := zones_recods_cache[zoneID]; !ok {
-				dns_records, _, err := c.cloudflareAPI.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), cloudflare.ListDNSRecordsParams{
-					Content: c.tunnelID + "." + tunnelDomain,
+				iter := c.cloudflareClient.DNS.Records.ListAutoPaging(ctx, dns.RecordListParams{
+					Content: cloudflare.String(c.tunnelID + "." + tunnelDomain),
 				})
-				if err != nil {
+				var dns_records []dns.Record
+				for iter.Next() {
+					dns_records = append(dns_records, iter.Current())
+				}
+				if err := iter.Err(); err != nil {
 					logger.Error(err, "Failed to list DNS records")
 					return err
 				}
@@ -188,7 +221,9 @@ func (c *Client) deleteFromDns(ctx context.Context, logger logr.Logger, ingressR
 					if record.Name != ingress.Hostname {
 						continue
 					}
-					err := c.cloudflareAPI.DeleteDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), record.ID)
+					_, err := c.cloudflareClient.DNS.Records.Delete(ctx, record.ID, dns.RecordDeleteParams{
+						ZoneID: cloudflare.String(zoneID),
+					})
 					if err != nil {
 						logger.Error(err, "Failed to delete DNS record")
 						return err
@@ -220,32 +255,41 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 }
 
 func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr.Logger, config *Config) error {
-	tc, err := c.cloudflareAPI.GetTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.accountID), c.tunnelID)
+	tc, err := c.cloudflareClient.ZeroTrust.Tunnels.Configurations.Get(ctx, c.tunnelID, zero_trust.TunnelConfigurationGetParams{
+		AccountID: cloudflare.String(c.accountID),
+	})
+	c.logger.Info("Getting tunnel configuration", "tc", tc)
 	if err != nil {
 		c.logger.Error(err, "Failed to get tunnel configuration")
 		return err
 	}
 
-	tunnelConfig := &tc.Config
+	tunnelConfig := zero_trust.TunnelConfigurationUpdateParamsConfig{}
+	switch t := (*tc).(type) {
+	case zero_trust.TunnelConfigurationGetResponseArray:
+		c.logger.Info("Tunnel configuration", "config", t)
+		//tunnelConfig.Ingress = t
+	}
+
 	tunnelConfigUpdated := false
 
-	if tunnelConfig.Ingress == nil {
-		tunnelConfig.Ingress = make([]cloudflare.UnvalidatedIngressRule, 0)
+	if tunnelConfig.Ingress.Null {
+		tunnelConfig.Ingress = cloudflare.F(make([]zero_trust.TunnelConfigurationUpdateParamsConfigIngress, 0))
 	}
 
 	for _, ingressRecords := range config.Ingresses {
 		for _, ingressRecord := range *ingressRecords {
 			is_new := true
-			for _, tunnelRecord := range tunnelConfig.Ingress {
+			for _, tunnelRecord := range tunnelConfig.Ingress.Value {
 				// is it new hostname?
 				// if so, we should add it to the configuration
-				if tunnelRecord.Hostname == ingressRecord.Hostname && tunnelRecord.Path == ingressRecord.Path && tunnelRecord.Service == ingressRecord.Service {
+				if tunnelRecord.Hostname.Value == ingressRecord.Hostname && tunnelRecord.Path.Value == ingressRecord.Path && tunnelRecord.Service.Value == ingressRecord.Service {
 					is_new = false
 					break
 				}
 			}
 			if is_new {
-				err = c.addNewIngressToTunnelConfigurationStruct(tunnelConfig, ingressRecord)
+				err = c.addNewIngressToTunnelConfigurationStruct(&tunnelConfig, ingressRecord)
 				if err != nil {
 					c.logger.Error(err, "Failed to add new ingress rule to tunnel configuration")
 					return err
@@ -257,10 +301,10 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 	}
 
 	// delete hostnames
-	for tc_ingress_idx := len(tunnelConfig.Ingress) - 1; tc_ingress_idx >= 0; tc_ingress_idx-- {
-		tunnelRecord := tunnelConfig.Ingress[tc_ingress_idx]
+	for tc_ingress_idx := len(tunnelConfig.Ingress.Value) - 1; tc_ingress_idx >= 0; tc_ingress_idx-- {
+		tunnelRecord := tunnelConfig.Ingress.Value[tc_ingress_idx]
 
-		if tunnelRecord.Service == "http_status:404" {
+		if tunnelRecord.Service.Value == "http_status:404" {
 			// Do not delete http_status:404 rule
 			continue
 		}
@@ -270,7 +314,7 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 			for _, ingressRecord := range *ingress {
 				// is it new hostname?
 				// if so, we should add it to the configuration
-				if ingressRecord.Hostname == tunnelRecord.Hostname && ingressRecord.Path == tunnelRecord.Path && ingressRecord.Service == tunnelRecord.Service {
+				if ingressRecord.Hostname == tunnelRecord.Hostname.Value && ingressRecord.Path == tunnelRecord.Path.Value && ingressRecord.Service == tunnelRecord.Service.Value {
 					still_exists = true
 					break
 				}
@@ -280,17 +324,17 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 			}
 		}
 		if !still_exists {
-			tunnelConfig.Ingress = append(tunnelConfig.Ingress[:tc_ingress_idx], tunnelConfig.Ingress[tc_ingress_idx+1:]...)
+			tunnelConfig.Ingress.Value = append(tunnelConfig.Ingress.Value[:tc_ingress_idx], tunnelConfig.Ingress.Value[tc_ingress_idx+1:]...)
 			tunnelConfigUpdated = true
 		}
 	}
 
 	if tunnelConfigUpdated {
-		c.flush404IfLast(tunnelConfig)
+		c.flush404IfLast(&tunnelConfig)
 
-		_, err = c.cloudflareAPI.UpdateTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelConfigurationParams{
-			TunnelID: c.tunnelID,
-			Config:   *tunnelConfig,
+		_, err = c.cloudflareClient.ZeroTrust.Tunnels.Configurations.Update(ctx, c.tunnelID, zero_trust.TunnelConfigurationUpdateParams{
+			AccountID: cloudflare.String(c.accountID),
+			Config:    cloudflare.F(tunnelConfig),
 		})
 		if err != nil {
 			logger.Error(err, "Failed to update tunnel configuration", "tunnelConfig", tunnelConfig)
@@ -310,7 +354,7 @@ func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config 
 
 	// determine which hostnames are in which zone
 	zone_hostnames := make(map[string]map[string]struct{})
-	zone_records := make(map[string]*[]cloudflare.DNSRecord)
+	zone_records := make(map[string]*[]dns.Record)
 	for _, ingressRecords := range config.Ingresses {
 		for _, ingress := range *ingressRecords {
 			zoneID := ""
@@ -329,10 +373,15 @@ func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config 
 			if _, ok := zone_hostnames[zoneID]; !ok {
 				zone_hostnames[zoneID] = make(map[string]struct{})
 
-				dns_records, _, err := c.cloudflareAPI.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), cloudflare.ListDNSRecordsParams{
-					Content: c.tunnelID + "." + tunnelDomain,
+				iter := c.cloudflareClient.DNS.Records.ListAutoPaging(ctx, dns.RecordListParams{
+					ZoneID:  cloudflare.String(zoneID),
+					Content: cloudflare.String(c.tunnelID + "." + tunnelDomain),
 				})
-				if err != nil {
+				var dns_records []dns.Record
+				for iter.Next() {
+					dns_records = append(dns_records, iter.Current())
+				}
+				if err = iter.Err(); err != nil {
 					logger.Error(err, "Failed to list DNS records")
 					return err
 				}
@@ -358,7 +407,9 @@ func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config 
 		valid_hostnames := zone_hostnames[zoneID]
 		for _, record := range *dns_records {
 			if _, ok := valid_hostnames[record.Name]; !ok {
-				err = c.cloudflareAPI.DeleteDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), record.ID)
+				_, err = c.cloudflareClient.DNS.Records.Delete(ctx, record.ID, dns.RecordDeleteParams{
+					ZoneID: cloudflare.String(zoneID),
+				})
 				if err != nil {
 					logger.Error(err, "Failed to delete DNS record")
 					return err
@@ -370,64 +421,73 @@ func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config 
 	return nil
 }
 
-func (c *Client) addNewIngressToTunnelConfigurationStruct(tunnelConfig *cloudflare.TunnelConfiguration, ingress *IngressConfig) error {
+func (c *Client) addNewIngressToTunnelConfigurationStruct(tunnelConfig *zero_trust.TunnelConfigurationUpdateParamsConfig, ingress *IngressConfig) error {
 	c.logger.Info("Adding new ingress rule to tunnel configuration")
 
-	newIngressRule := cloudflare.UnvalidatedIngressRule{
-		Hostname: ingress.Hostname,
-		Path:     ingress.Path,
-		Service:  ingress.Service,
+	tunnel_records := tunnelConfig.Ingress
+
+	newIngressRule := zero_trust.TunnelConfigurationUpdateParamsConfigIngress{
+		Hostname: cloudflare.String(ingress.Hostname),
+		Path:     cloudflare.String(ingress.Path),
+		Service:  cloudflare.String(ingress.Service),
 	}
 
 	if ingress.OriginConfig != nil {
-		var tmp *cloudflare.OriginRequestConfig
-		if tmp = newIngressRule.OriginRequest; tmp == nil {
-			tmp = &cloudflare.OriginRequestConfig{}
-			newIngressRule.OriginRequest = tmp
+		var tmp zero_trust.TunnelConfigurationUpdateParamsConfigIngressOriginRequest
+		if newIngressRule.OriginRequest.Null {
+			tmp = zero_trust.TunnelConfigurationUpdateParamsConfigIngressOriginRequest{}
+			newIngressRule.OriginRequest = cloudflare.F(tmp)
+		} else {
+			tmp = newIngressRule.OriginRequest.Value
 		}
 
 		if connectTimeout := ingress.OriginConfig.ConnectTimeout; connectTimeout != nil {
-			tmp.ConnectTimeout = &cloudflare.TunnelDuration{
-				Duration: time.Duration(connectTimeout.Nanoseconds()),
-			}
+			tmp.ConnectTimeout = cloudflare.Int(connectTimeout.Nanoseconds())
 		}
 		if tlsTimeout := ingress.OriginConfig.TLSTimeout; tlsTimeout != nil {
-			tmp.TLSTimeout = &cloudflare.TunnelDuration{
-				Duration: time.Duration(tlsTimeout.Nanoseconds()),
-			}
+			tmp.TLSTimeout = cloudflare.Int(tlsTimeout.Nanoseconds())
 		}
 		if tcpKeepAlive := ingress.OriginConfig.TCPKeepAlive; tcpKeepAlive != nil {
-			tmp.TCPKeepAlive = &cloudflare.TunnelDuration{
-				Duration: time.Duration(tcpKeepAlive.Nanoseconds()),
-			}
+			tmp.TCPKeepAlive = cloudflare.Int(tcpKeepAlive.Nanoseconds())
 		}
 		if keepAliveTimeout := ingress.OriginConfig.KeepAliveTimeout; keepAliveTimeout != nil {
-			tmp.KeepAliveTimeout = &cloudflare.TunnelDuration{
-				Duration: time.Duration(keepAliveTimeout.Nanoseconds()),
-			}
+			tmp.KeepAliveTimeout = cloudflare.Int(keepAliveTimeout.Nanoseconds())
 		}
-		tmp.NoHappyEyeballs = ingress.OriginConfig.NoHappyEyeballs
-		tmp.KeepAliveConnections = ingress.OriginConfig.KeepAliveConnections
-		tmp.HTTPHostHeader = ingress.OriginConfig.HTTPHostHeader
-		tmp.OriginServerName = ingress.OriginConfig.OriginServerName
-		tmp.NoTLSVerify = ingress.OriginConfig.NoTLSVerify
-		tmp.DisableChunkedEncoding = ingress.OriginConfig.DisableChunkedEncoding
-		tmp.BastionMode = ingress.OriginConfig.BastionMode
-		tmp.ProxyAddress = ingress.OriginConfig.ProxyAddress
-		tmp.ProxyPort = ingress.OriginConfig.ProxyPort
-		tmp.ProxyType = ingress.OriginConfig.ProxyType
-		tmp.Http2Origin = ingress.OriginConfig.Http2Origin
+		if noHappyEyeballs := ingress.OriginConfig.NoHappyEyeballs; noHappyEyeballs != nil {
+			tmp.NoHappyEyeballs = cloudflare.Bool(*noHappyEyeballs)
+		}
+		if keepAliveConnections := ingress.OriginConfig.KeepAliveConnections; keepAliveConnections != nil {
+			tmp.KeepAliveConnections = cloudflare.Int(int64(*keepAliveConnections))
+		}
+		if httpHostHeader := ingress.OriginConfig.HTTPHostHeader; httpHostHeader != nil {
+			tmp.HTTPHostHeader = cloudflare.String(*httpHostHeader)
+		}
+		if originServerName := ingress.OriginConfig.OriginServerName; originServerName != nil {
+			tmp.OriginServerName = cloudflare.String(*originServerName)
+		}
+		if noTLSVerify := ingress.OriginConfig.NoTLSVerify; noTLSVerify != nil {
+			tmp.NoTLSVerify = cloudflare.Bool(*noTLSVerify)
+		}
+		if disableChunkedEncoding := ingress.OriginConfig.DisableChunkedEncoding; disableChunkedEncoding != nil {
+			tmp.DisableChunkedEncoding = cloudflare.Bool(*disableChunkedEncoding)
+		}
+		if proxyType := ingress.OriginConfig.ProxyType; proxyType != nil {
+			tmp.ProxyType = cloudflare.String(*proxyType)
+		}
+		if http2Origin := ingress.OriginConfig.Http2Origin; http2Origin != nil {
+			tmp.HTTP2Origin = cloudflare.Bool(*http2Origin)
+		}
 	}
 
-	last_id := len(tunnelConfig.Ingress) - 1
-	has_http_status_404 := last_id >= 0 && tunnelConfig.Ingress[last_id].Service == "http_status:404"
+	last_id := len(tunnel_records.Value) - 1
+	has_http_status_404 := last_id >= 0 && tunnel_records.Value[last_id].Service.Value == "http_status:404"
 	if has_http_status_404 {
 		// Keep the http_status:404 rule at the end (if it exists)
-		tunnelConfig.Ingress = append(tunnelConfig.Ingress[:last_id], newIngressRule, tunnelConfig.Ingress[last_id])
+		tunnel_records.Value = append(tunnel_records.Value[:last_id], newIngressRule, tunnel_records.Value[last_id])
 	} else {
 		// Add the new rule at the end and add a http_status:404 rule after it
-		tunnelConfig.Ingress = append(tunnelConfig.Ingress, newIngressRule, cloudflare.UnvalidatedIngressRule{
-			Service: "http_status:404",
+		tunnel_records.Value = append(tunnel_records.Value, newIngressRule, zero_trust.TunnelConfigurationUpdateParamsConfigIngress{
+			Service: cloudflare.String("http_status:404"),
 		})
 	}
 
@@ -436,8 +496,12 @@ func (c *Client) addNewIngressToTunnelConfigurationStruct(tunnelConfig *cloudfla
 
 func (c *Client) getDnsZoneMap(ctx context.Context) (map[string]string, error) {
 	// get the zone id
-	zones, err := c.cloudflareAPI.ListZones(ctx)
-	if err != nil {
+	iter := c.cloudflareClient.Zones.ListAutoPaging(ctx, zones.ZoneListParams{})
+	var zones []zones.Zone
+	for iter.Next() {
+		zones = append(zones, iter.Current())
+	}
+	if err := iter.Err(); err != nil {
 		c.logger.Error(err, "Failed to list zones")
 		return nil, err
 	}
@@ -453,20 +517,20 @@ func (c *Client) getDnsZoneMap(ctx context.Context) (map[string]string, error) {
 func (c *Client) createDNSRecords(ctx context.Context, logger logr.Logger, zoneID string, hostnames []string) error {
 	logger.Info("Creating new DNS record")
 
-	truth := true
-
 	// create the DNS records
 	for _, hostname := range hostnames {
-		_, err := c.cloudflareAPI.CreateDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), cloudflare.CreateDNSRecordParams{
-			ZoneID:  zoneID,
-			Type:    "CNAME",
-			Proxied: &truth,
-			Name:    hostname,
-			Content: c.tunnelID + "." + tunnelDomain,
-			Comment: "Automatically created by Cloudflare Tunnel Ingress Controller",
+		_, err := c.cloudflareClient.DNS.Records.New(ctx, dns.RecordNewParams{
+			ZoneID: cloudflare.String(zoneID),
+			Record: dns.CNAMERecordParam{
+				Type:    cloudflare.F(dns.CNAMERecordTypeCNAME),
+				Proxied: cloudflare.Bool(true),
+				Name:    cloudflare.String(hostname),
+				// Content: cloudflare.F(c.tunnelID + "." + tunnelDomain),
+				Comment: cloudflare.String("Automatically created by Cloudflare Tunnel Ingress Controller"),
+			},
 		})
 		if err != nil {
-			cfErr := &cloudflare.RequestError{}
+			/*cfErr := &cloudflare.Error{}
 			if errors.As(err, &cfErr) {
 				for _, e := range cfErr.Errors() {
 					if e.Code != 81053 {
@@ -476,7 +540,7 @@ func (c *Client) createDNSRecords(ctx context.Context, logger logr.Logger, zoneI
 				}
 				// 81053: "Record already exists"
 				continue
-			}
+			}*/
 
 			logger.Error(err, "Failed to create DNS record")
 			return err
@@ -486,8 +550,8 @@ func (c *Client) createDNSRecords(ctx context.Context, logger logr.Logger, zoneI
 	return nil
 }
 
-func (c *Client) flush404IfLast(tunnelConfig *cloudflare.TunnelConfiguration) {
-	if len(tunnelConfig.Ingress) == 1 && tunnelConfig.Ingress[0].Service == "http_status:404" {
-		tunnelConfig.Ingress = make([]cloudflare.UnvalidatedIngressRule, 0)
+func (c *Client) flush404IfLast(tunnelConfig *zero_trust.TunnelConfigurationUpdateParamsConfig) {
+	if len(tunnelConfig.Ingress.Value) == 1 && tunnelConfig.Ingress.Value[0].Service.Value == "http_status:404" {
+		tunnelConfig.Ingress = cloudflare.Null[[]zero_trust.TunnelConfigurationUpdateParamsConfigIngress]()
 	}
 }
