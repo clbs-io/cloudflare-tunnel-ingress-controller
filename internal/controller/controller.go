@@ -37,6 +37,10 @@ type CloudflaredConfig struct {
 	CloudflaredImagePullPolicy string
 }
 
+var (
+	_namespace = ""
+)
+
 func NewIngressController(logger logr.Logger, client client.Client, tunnelClient *tunnel.Client, ingressClassName, controllerClassName string, cloudflaredConfig CloudflaredConfig) *IngressController {
 	return &IngressController{
 		logger:              logger,
@@ -140,10 +144,13 @@ func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func namespace() string {
-	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
-		if ns := strings.TrimSpace(string(data)); len(ns) > 0 {
-			return ns
+	if _namespace == "" {
+		if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
+			if ns := strings.TrimSpace(string(data)); len(ns) > 0 {
+				_namespace = ns
+			}
 		}
+		_namespace = "default"
 	}
-	return "default"
+	return _namespace
 }

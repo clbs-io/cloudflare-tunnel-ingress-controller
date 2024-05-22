@@ -3,6 +3,8 @@ package controller
 import (
 	"context"
 	"errors"
+	"strings"
+
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -10,7 +12,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"strings"
 )
 
 const appName = "cloudflare-tunnel-cloudflared"
@@ -55,7 +56,7 @@ func (c *IngressController) EnsureCloudflaredDeploymentExists(ctx context.Contex
 func (c *IngressController) createAndDeployCloudflaredDeployment(ctx context.Context, logger logr.Logger) error {
 	logger.Info("Creating Cloudflared Deployment resource")
 
-	deployment, err := c.newCloudflaredDeployment(ctx, logger)
+	deployment, err := c.newCloudflaredDeployment()
 	if err != nil {
 		logger.Error(err, "Failed to create Cloudflared Deployment resource")
 		return err
@@ -72,7 +73,7 @@ func (c *IngressController) createAndDeployCloudflaredDeployment(ctx context.Con
 	return nil
 }
 
-func (c *IngressController) newCloudflaredDeployment(ctx context.Context, logger logr.Logger) (*appsv1.Deployment, error) {
+func (c *IngressController) newCloudflaredDeployment() (*appsv1.Deployment, error) {
 	replicas := int32(1)
 	ns := namespace()
 
@@ -135,7 +136,7 @@ func (c *IngressController) newCloudflaredDeployment(ctx context.Context, logger
 func (c *IngressController) updateCloudflaredDeploymentIfNeeded(ctx context.Context, logger logr.Logger, foundDeployment *appsv1.Deployment) error {
 	ns := namespace()
 
-	dep, err := c.newCloudflaredDeployment(ctx, logger)
+	dep, err := c.newCloudflaredDeployment()
 	if err != nil {
 		logger.Error(err, "Failed to create new Deployment resource", "Deployment.Namespace", ns, "Deployment.Name", appName)
 		return err
