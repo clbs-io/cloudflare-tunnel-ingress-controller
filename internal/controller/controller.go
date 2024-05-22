@@ -106,6 +106,7 @@ func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		err = c.client.List(ctx, ingress_list)
 		if err != nil {
 			reqLogger.Error(err, "failed to list ingress resources")
+			return ctrl.Result{}, err
 		} else {
 			for _, ing := range ingress_list.Items {
 				if ing.Spec.IngressClassName != nil && *ing.Spec.IngressClassName != c.ingressClassName {
