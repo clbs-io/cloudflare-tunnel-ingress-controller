@@ -46,49 +46,49 @@ func (c *Client) GetTunnelToken(ctx context.Context) (string, error) {
 	return c.tunnelToken, nil
 }
 
-func (c *Client) EnsureTunnelExists(ctx context.Context) error {
+func (c *Client) EnsureTunnelExists(ctx context.Context, logger logr.Logger) error {
 	if c.tunnelID == "" {
-		c.logger.Info("TunnelID not set, looking for an existing tunnel")
+		logger.Info("TunnelID not set, looking for an existing tunnel")
 
 		tunnels, _, err := c.cloudflareAPI.ListTunnels(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelListParams{})
 		if err != nil {
-			c.logger.Error(err, "Failed to list tunnels")
+			logger.Error(err, "Failed to list tunnels")
 			return err
 		}
 
 		for _, tunnel := range tunnels {
 			if tunnel.Name == c.tunnelName {
-				c.logger.Info("Cloudflare Tunnel found", "tunnelID", tunnel.ID)
+				logger.Info("Cloudflare Tunnel found", "tunnelID", tunnel.ID)
 				c.tunnelID = tunnel.ID
 				return nil
 			}
 		}
 
-		c.logger.Info("Cloudflare Tunnel not found, creating a new one")
+		logger.Info("Cloudflare Tunnel not found, creating a new one")
 
-		return c.createTunnel(ctx)
+		return c.createTunnel(ctx, logger)
 	}
 
 	tunnel, err := c.cloudflareAPI.GetTunnel(ctx, cloudflare.AccountIdentifier(c.accountID), c.tunnelID)
 	if err != nil {
-		c.logger.Error(err, "Failed to get the tunnel")
+		logger.Error(err, "Failed to get the tunnel")
 		return err
 	}
 
 	if tunnel.Name != c.tunnelName {
-		c.logger.Error(errors.New("tunnel name mismatch"), "Tunnel name mismatch, this will force creation new tunnel, please review your configuration", "expected", c.tunnelName, "actual", tunnel.Name)
+		logger.Error(errors.New("tunnel name mismatch"), "Tunnel name mismatch, this will force creation new tunnel, please review your configuration", "expected", c.tunnelName, "actual", tunnel.Name)
 	}
 
-	c.logger.Info("Tunnel exists")
+	logger.Info("Tunnel exists")
 
 	return nil
 }
 
-func (c *Client) createTunnel(ctx context.Context) error {
+func (c *Client) createTunnel(ctx context.Context, logger logr.Logger) error {
 	secret := make([]byte, 64)
 	_, err := rand.Read(secret)
 	if err != nil {
-		c.logger.Error(err, "Failed to generate a secret for the tunnel")
+		logger.Error(err, "Failed to generate a secret for the tunnel")
 		return err
 	}
 
@@ -99,11 +99,11 @@ func (c *Client) createTunnel(ctx context.Context) error {
 		ConfigSrc: "cloudflare",
 	})
 	if err != nil {
-		c.logger.Error(err, "Failed to create a tunnel")
+		logger.Error(err, "Failed to create a tunnel")
 		return err
 	}
 
-	c.logger.Info("Cloudflare Tunnel created", "tunnelID", tunnel.ID)
+	logger.Info("Cloudflare Tunnel created", "tunnelID", tunnel.ID)
 	c.tunnelID = tunnel.ID
 	return nil
 }
@@ -154,7 +154,7 @@ func (c *Client) deleteFromTunnelConfiguration(ctx context.Context, logger logr.
 		Config:   *tunnelConfig,
 	})
 	if err != nil {
-		c.logger.Error(err, "Failed to update tunnel configuration", "tunnelConfig", tunnelConfig)
+		logger.Error(err, "Failed to update tunnel configuration", "tunnelConfig", tunnelConfig)
 		return err
 	}
 
@@ -162,7 +162,7 @@ func (c *Client) deleteFromTunnelConfiguration(ctx context.Context, logger logr.
 }
 
 func (c *Client) deleteFromDns(ctx context.Context, logger logr.Logger, ingressRecords *IngressRecords) error {
-	zone_map, err := c.getDnsZoneMap(ctx)
+	zone_map, err := c.getDnsZoneMap(ctx, logger)
 	if err != nil {
 		return err
 	}
@@ -222,7 +222,7 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr.Logger, config *Config) error {
 	tc, err := c.cloudflareAPI.GetTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.accountID), c.tunnelID)
 	if err != nil {
-		c.logger.Error(err, "Failed to get tunnel configuration")
+		logger.Error(err, "Failed to get tunnel configuration")
 		return err
 	}
 
@@ -245,9 +245,9 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 				}
 			}
 			if is_new {
-				err = c.addNewIngressToTunnelConfigurationStruct(tunnelConfig, ingressRecord)
+				err = c.addNewIngressToTunnelConfigurationStruct(tunnelConfig, logger, ingressRecord)
 				if err != nil {
-					c.logger.Error(err, "Failed to add new ingress rule to tunnel configuration")
+					logger.Error(err, "Failed to add new ingress rule to tunnel configuration")
 					return err
 				}
 
@@ -303,7 +303,7 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 
 func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config *Config) error {
 
-	zone_map, err := c.getDnsZoneMap(ctx)
+	zone_map, err := c.getDnsZoneMap(ctx, logger)
 	if err != nil {
 		return err
 	}
@@ -370,8 +370,8 @@ func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config 
 	return nil
 }
 
-func (c *Client) addNewIngressToTunnelConfigurationStruct(tunnelConfig *cloudflare.TunnelConfiguration, ingress *IngressConfig) error {
-	c.logger.Info("Adding new ingress rule to tunnel configuration")
+func (c *Client) addNewIngressToTunnelConfigurationStruct(tunnelConfig *cloudflare.TunnelConfiguration, logger logr.Logger, ingress *IngressConfig) error {
+	logger.Info("Adding new ingress rule to tunnel configuration")
 
 	newIngressRule := cloudflare.UnvalidatedIngressRule{
 		Hostname: ingress.Hostname,
@@ -434,11 +434,11 @@ func (c *Client) addNewIngressToTunnelConfigurationStruct(tunnelConfig *cloudfla
 	return nil
 }
 
-func (c *Client) getDnsZoneMap(ctx context.Context) (map[string]string, error) {
+func (c *Client) getDnsZoneMap(ctx context.Context, logger logr.Logger) (map[string]string, error) {
 	// get the zone id
 	zones, err := c.cloudflareAPI.ListZones(ctx)
 	if err != nil {
-		c.logger.Error(err, "Failed to list zones")
+		logger.Error(err, "Failed to list zones")
 		return nil, err
 	}
 

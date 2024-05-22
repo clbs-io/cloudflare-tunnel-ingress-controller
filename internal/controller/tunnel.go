@@ -21,7 +21,7 @@ func (c *IngressController) SetTunnelToken(token string) {
 
 func (c *IngressController) ensureCloudflareTunnelExists(ctx context.Context, logger logr.Logger) error {
 	logger.Info("Ensuring Cloudflare Tunnel exists")
-	err := c.tunnelClient.EnsureTunnelExists(ctx)
+	err := c.tunnelClient.EnsureTunnelExists(ctx, logger)
 	if err != nil {
 		logger.Error(err, "Failed to ensure Cloudflare Tunnel exists")
 		return err

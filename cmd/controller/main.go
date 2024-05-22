@@ -90,7 +90,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	err = tunnelClient.EnsureTunnelExists(ctx)
+	err = tunnelClient.EnsureTunnelExists(ctx, logger)
 	if err != nil {
 		logger.Error(err, "could not ensure tunnel exists")
 		stop()
