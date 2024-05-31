@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/tunnel"
+	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/go-logr/logr"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"

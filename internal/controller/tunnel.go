@@ -8,7 +8,7 @@ import (
 
 	"strings"
 
-	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/tunnel"
+	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"

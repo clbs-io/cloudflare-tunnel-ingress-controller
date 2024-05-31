@@ -10,9 +10,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/controller"
+	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/cloudflare/cloudflare-go"
-	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/controller"
-	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/go-logr/logr"
 	"go.uber.org/zap"
 	ctrl "sigs.k8s.io/controller-runtime"

@@ -3,7 +3,7 @@ package controller
 import (
 	"context"
 
-	"github.com/cybroslabs/cloudflare-tunnel-ingress-controller/internal/tunnel"
+	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/go-logr/logr"
 	networkingv1 "k8s.io/api/networking/v1"
 )

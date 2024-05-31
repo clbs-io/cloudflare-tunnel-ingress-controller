@@ -1,4 +1,4 @@
-module github.com/cybroslabs/cloudflare-tunnel-ingress-controller
+module github.com/clbs-io/cloudflare-tunnel-ingress-controller
 
 go 1.22.0
 

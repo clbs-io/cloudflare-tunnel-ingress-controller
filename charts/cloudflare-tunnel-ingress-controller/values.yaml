@@ -14,7 +14,7 @@ resources:
 
 ingressClass:
   name: cloudflare-tunnel
-  controller: github.com/cybroslabs/cloudflare-tunnel-ingress
+  controller: github.com/clbs-io/cloudflare-tunnel-ingress
   isDefaultClass: false
 
 config:
