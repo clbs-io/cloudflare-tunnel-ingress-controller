@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
@@ -146,12 +145,13 @@ func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 func namespace() string {
 	if _namespace == "" {
-		if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
-			if ns := strings.TrimSpace(string(data)); len(ns) > 0 {
-				_namespace = ns
-			}
-		}
 		_namespace = "default"
+
+		ns := os.Getenv("NAMESPACE")
+		if len(ns) > 0 {
+			_namespace = ns
+		}
 	}
+
 	return _namespace
 }
