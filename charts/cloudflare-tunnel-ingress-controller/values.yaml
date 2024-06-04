@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/cybroslabs/cloudflare-tunnel-ingress-controller
+  repository: ghcr.io/clbs-io/cloudflare-tunnel-ingress-controller
   tag: ""
   pullPolicy: IfNotPresent
   pullSecrets: []
