@@ -23,7 +23,7 @@ jobs:
         uses: codacy/git-version@2.8.0
         with:
           release-branch: main
-          minor-identifier: "feat:"
+          minor-identifier: "feat"
           prefix: v
 
       - name: tag
