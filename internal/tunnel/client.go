@@ -57,6 +57,10 @@ func (c *Client) EnsureTunnelExists(ctx context.Context, logger logr.Logger) err
 		}
 
 		for _, tunnel := range tunnels {
+			if tunnel.DeletedAt != nil {
+				// This is some deleted tunnel, skip it
+				continue
+			}
 			if tunnel.Name == c.tunnelName {
 				logger.Info("Cloudflare Tunnel found", "tunnelID", tunnel.ID)
 				c.tunnelID = tunnel.ID
