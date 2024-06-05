@@ -11,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -82,13 +83,18 @@ func (c *IngressController) newCloudflaredDeployment() (*appsv1.Deployment, erro
 		return nil, errors.New("cloudflared image version is required, latest is not allowed")
 	}
 
-	labels := map[string]string{
+	additionalLabels := map[string]string{
+		"app.kubernetes.io/version": cloudflaredVersion,
+	}
+
+	selectorLabels := map[string]string{
 		"app.kubernetes.io/name":       appName,
 		"app.kubernetes.io/managed-by": "cloudflare-tunnel-ingress-controller",
 		"app.kubernetes.io/component":  "cloudflared",
 		"app.kubernetes.io/part-of":    "cloudflare-tunnel-ingress-controller",
-		"app.kubernetes.io/version":    cloudflaredVersion,
 	}
+
+	labels := labels.Merge(selectorLabels, additionalLabels)
 
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -99,7 +105,7 @@ func (c *IngressController) newCloudflaredDeployment() (*appsv1.Deployment, erro
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
+				MatchLabels: selectorLabels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
