@@ -3,4 +3,4 @@ name: cloudflare-tunnel-ingress-controller
 description: A Helm chart for deploying the Cloudflare Tunnel Ingress Controller
 type: application
 version: 0.4.0
-appVersion: "v0.3.2"
+appVersion: "v0.3.3"
