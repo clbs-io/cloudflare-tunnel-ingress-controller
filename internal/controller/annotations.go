@@ -3,8 +3,10 @@ package controller
 const AnnotationBackendProtocol = "cloudflare-tunnel-ingress-controller.clbs.io/backend-protocol"
 
 const AnnotationBackendProtocolHTTP = "HTTP"
+const AnnotationBackendProtocolHTTPS = "HTTPS"
+const AnnotationBackendProtocolTCP = "TCP"
 
-var SupportedBackendProtocols = []string{AnnotationBackendProtocolHTTP}
+var SupportedBackendProtocols = []string{AnnotationBackendProtocolHTTP, AnnotationBackendProtocolHTTPS, AnnotationBackendProtocolTCP}
 
 const AnnotationOriginConnectTimeout = "cloudflare-tunnel-ingress-controller.clbs.io/origin-connect-timeout"
 const AnnotationOriginTlsTimeout = "cloudflare-tunnel-ingress-controller.clbs.io/origin-tls-timeout"
