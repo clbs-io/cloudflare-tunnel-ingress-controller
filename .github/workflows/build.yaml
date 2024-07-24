@@ -50,7 +50,7 @@ jobs:
             type=raw,value=${{ steps.set-env.outputs.version }}
 
       - name: build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
