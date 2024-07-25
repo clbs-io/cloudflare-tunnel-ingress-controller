@@ -26,7 +26,8 @@ type Client struct {
 }
 
 var (
-	dummy = struct{}{}
+	dummy          = struct{}{}
+	socksProxyType = "socks"
 )
 
 func NewClient(cloudflareAPI *cloudflare.API, accountID, tunnelName string, logger logr.Logger) *Client {
@@ -232,6 +233,7 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 
 	tunnelConfig := &tc.Config
 	tunnelConfigUpdated := false
+	hasKubernetesApiTunnelConfigured := false
 
 	if tunnelConfig.Ingress == nil {
 		tunnelConfig.Ingress = make([]cloudflare.UnvalidatedIngressRule, 0)
@@ -283,10 +285,36 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 				break
 			}
 		}
+
+		if !still_exists && config.KubernetesApiTunnelConfig.Enabled {
+			if tunnelRecord.Hostname == config.KubernetesApiTunnelConfig.Domain && tunnelRecord.Service == config.KubernetesApiTunnelConfig.GetService() {
+				still_exists = true
+				hasKubernetesApiTunnelConfigured = true
+			}
+		}
+
 		if !still_exists {
 			tunnelConfig.Ingress = append(tunnelConfig.Ingress[:tc_ingress_idx], tunnelConfig.Ingress[tc_ingress_idx+1:]...)
 			tunnelConfigUpdated = true
 		}
+	}
+
+	if !hasKubernetesApiTunnelConfigured && config.KubernetesApiTunnelConfig.Enabled {
+		newIngressRule := cloudflare.UnvalidatedIngressRule{
+			Hostname: config.KubernetesApiTunnelConfig.Domain,
+			Service:  config.KubernetesApiTunnelConfig.GetService(),
+		}
+
+		var tmp *cloudflare.OriginRequestConfig
+		if tmp = newIngressRule.OriginRequest; tmp == nil {
+			tmp = &cloudflare.OriginRequestConfig{}
+			newIngressRule.OriginRequest = tmp
+		}
+
+		tmp.ProxyType = &socksProxyType
+
+		tunnelConfig.Ingress = append(tunnelConfig.Ingress, newIngressRule)
+		tunnelConfigUpdated = true
 	}
 
 	if tunnelConfigUpdated {
@@ -299,6 +327,10 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 		if err != nil {
 			logger.Error(err, "Failed to update tunnel configuration", "tunnelConfig", tunnelConfig)
 			return err
+		}
+
+		if config.KubernetesApiTunnelConfig.Enabled {
+			c.ensureKubeApiApplication(ctx, logger, config)
 		}
 	}
 
@@ -494,4 +526,27 @@ func (c *Client) flush404IfLast(tunnelConfig *cloudflare.TunnelConfiguration) {
 	if len(tunnelConfig.Ingress) == 1 && tunnelConfig.Ingress[0].Service == "http_status:404" {
 		tunnelConfig.Ingress = make([]cloudflare.UnvalidatedIngressRule, 0)
 	}
+}
+
+func (c *Client) ensureKubeApiApplication(ctx context.Context, logger logr.Logger, config *Config) error {
+	apps, _, err := c.cloudflareAPI.ListAccessApplications(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.ListAccessApplicationsParams{})
+	if err != nil {
+		logger.Error(err, "Failed to list Access Applications")
+		return err
+	}
+
+	for _, app := range apps {
+		if app.Domain == config.KubernetesApiTunnelConfig.Domain {
+			return nil
+		}
+	}
+
+	params := cloudflare.CreateAccessApplicationParams{
+		Name:   config.KubernetesApiTunnelConfig.CloudflareAccessAppName,
+		Domain: config.KubernetesApiTunnelConfig.Domain,
+		Type:   cloudflare.SelfHosted,
+	}
+
+	_, err = c.cloudflareAPI.CreateAccessApplication(ctx, cloudflare.AccountIdentifier(c.accountID), params)
+	return err
 }

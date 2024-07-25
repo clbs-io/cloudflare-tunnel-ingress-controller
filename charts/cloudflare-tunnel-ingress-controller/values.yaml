@@ -30,3 +30,9 @@ config:
       existingSecret:
         name: cloudflare-api-token
         key: token
+
+  kubernetesApiTunnel:
+    enabled: false
+    server: kubernetes.default.svc:443
+    domain: domain.example.com
+    cloudflareAccessAppName: "Kubernetes API Tunnel"

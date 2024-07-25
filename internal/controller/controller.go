@@ -10,6 +10,7 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/env"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -41,6 +42,11 @@ var (
 )
 
 func NewIngressController(logger logr.Logger, client client.Client, tunnelClient *tunnel.Client, ingressClassName, controllerClassName string, cloudflaredConfig CloudflaredConfig) *IngressController {
+	kubernetes_api_tunnel_enabled, _ := env.GetBool("KUBERNETES_API_TUNNEL_ENABLED", false)
+	kubernetes_api_tunnel_server := os.Getenv("KUBERNETES_API_TUNNEL_SERVER")
+	kubernetes_api_tunnel_domain := os.Getenv("KUBERNETES_API_TUNNEL_DOMAIN")
+	kubernetes_api_tunnel_cf_access_app_name := os.Getenv("KUBERNETES_API_TUNNEL_CF_ACCESS_APP_NAME")
+
 	return &IngressController{
 		logger:              logger,
 		client:              client,
@@ -55,6 +61,12 @@ func NewIngressController(logger logr.Logger, client client.Client, tunnelClient
 		tunnelConfigInitialized: false,
 		tunnelConfig: &tunnel.Config{
 			Ingresses: make(map[types.UID]*tunnel.IngressRecords),
+			KubernetesApiTunnelConfig: tunnel.KubernetesApiTunnelConfig{
+				Enabled:                 kubernetes_api_tunnel_enabled,
+				Server:                  kubernetes_api_tunnel_server,
+				Domain:                  kubernetes_api_tunnel_domain,
+				CloudflareAccessAppName: kubernetes_api_tunnel_cf_access_app_name,
+			},
 		},
 	}
 }
