@@ -7,7 +7,7 @@ data:
   CLOUDFLARED_IMAGE_PULL_POLICY: {{ .Values.config.cloudflared.imagePullPolicy | quote }}
   CLOUDFLARE_ACCOUNT_ID: {{ .Values.config.cloudflare.accountID | quote }}
   CLOUDFLARE_TUNNEL_NAME: {{ .Values.config.cloudflare.tunnelName | quote }}
-  KUBERNETES_API_TUNNEL_ENABLED: {{ .Values.config.kubernetesApiTunnel.enabled }}
+  KUBERNETES_API_TUNNEL_ENABLED: {{ .Values.config.kubernetesApiTunnel.enabled | quote }}
   KUBERNETES_API_TUNNEL_CF_ACCESS_APP_NAME: {{ .Values.config.kubernetesApiTunnel.cloudflareAccessAppName | quote }}
   KUBERNETES_API_TUNNEL_SERVER: {{ .Values.config.kubernetesApiTunnel.server | quote }}
   KUBERNETES_API_TUNNEL_DOMAIN: {{ .Values.config.kubernetesApiTunnel.domain | quote }}
