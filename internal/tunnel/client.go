@@ -330,7 +330,10 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 		}
 
 		if config.KubernetesApiTunnelConfig.Enabled {
-			c.ensureKubeApiApplication(ctx, logger, config)
+			err := c.ensureKubeApiApplication(ctx, logger, config)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
