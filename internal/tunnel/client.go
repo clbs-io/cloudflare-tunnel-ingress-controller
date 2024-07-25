@@ -340,6 +340,10 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 	return nil
 }
 
+func (c *Client) isInZone(hostname string, zoneName string) bool {
+	return (hostname == zoneName) || strings.HasSuffix(hostname, "."+zoneName)
+}
+
 func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config *Config) error {
 
 	zone_map, err := c.getDnsZoneMap(ctx, logger)
@@ -354,7 +358,7 @@ func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config 
 		for _, ingress := range *ingressRecords {
 			zoneID := ""
 			for zone, zone_id := range zone_map {
-				if strings.HasSuffix(ingress.Hostname, zone) {
+				if c.isInZone(ingress.Hostname, zone) {
 					zoneID = zone_id
 					break
 				}
@@ -378,6 +382,34 @@ func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config 
 				zone_records[zoneID] = &dns_records
 			}
 			zone_hostnames[zoneID][ingress.Hostname] = dummy
+		}
+	}
+
+	if config.KubernetesApiTunnelConfig.Enabled {
+		zoneID := ""
+		for zone, zone_id := range zone_map {
+			if c.isInZone(config.KubernetesApiTunnelConfig.Domain, zone) {
+				zoneID = zone_id
+				break
+			}
+		}
+
+		if len(zoneID) == 0 {
+			logger.Info("Failed to find zone ID", "hostname", config.KubernetesApiTunnelConfig.Domain)
+		} else {
+			if _, ok := zone_hostnames[zoneID]; !ok {
+				zone_hostnames[zoneID] = make(map[string]struct{})
+
+				dns_records, _, err := c.cloudflareAPI.ListDNSRecords(ctx, cloudflare.ZoneIdentifier(zoneID), cloudflare.ListDNSRecordsParams{
+					Content: c.tunnelID + "." + tunnelDomain,
+				})
+				if err != nil {
+					logger.Error(err, "Failed to list DNS records")
+					return err
+				}
+				zone_records[zoneID] = &dns_records
+			}
+			zone_hostnames[zoneID][config.KubernetesApiTunnelConfig.Domain] = dummy
 		}
 	}
 
