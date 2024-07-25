@@ -80,5 +80,5 @@ type KubernetesApiTunnelConfig struct {
 }
 
 func (c KubernetesApiTunnelConfig) GetService() string {
-	return fmt.Sprintf("tcp://%s", c.Domain)
+	return fmt.Sprintf("tcp://%s", c.Server)
 }
