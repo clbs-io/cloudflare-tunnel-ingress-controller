@@ -6,8 +6,8 @@ require (
 	github.com/cloudflare/cloudflare-go v0.101.0
 	github.com/go-logr/logr v1.4.2
 	go.uber.org/zap v1.27.0
-	k8s.io/api v0.30.3
-	k8s.io/apimachinery v0.30.3
+	k8s.io/api v0.31.0
+	k8s.io/apimachinery v0.31.0
 	k8s.io/utils v0.0.0-20240711033017-18e509b52bc8
 	sigs.k8s.io/controller-runtime v0.18.4
 )
