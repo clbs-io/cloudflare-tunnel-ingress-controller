@@ -76,3 +76,36 @@ helm upgrade --install \
 ```shell
 helm uninstall --namespace cloudflare-tunnel-system cloudflare-tunnel-ingress
 ```
+
+## Using port-forward via Cloudflare Tunnel
+
+The `kubectl port-forward` command utilizes an HTTP connection upgrade, which can fail if the connection is established via a Cloudflare (CF) Tunnel.
+To resolve this issue, direct TCP access to the Kubernetes API server is required.
+
+The clbs Cloudflare Tunnel Ingress Controller automatically creates access records that allow the use of the `cloudflared access tcp` command to directly forward to the Kubernetes API server.
+
+### Command Usage
+
+The `cloudflared access tcp` command requires two arguments:
+
+* **hostname** - It shall correspond with the tunnel domain.
+* **url** - The `host:port` value on which the tcp access shall locally listen on. Typically it should be `127.0.0.1:6443`.
+
+Example command:
+
+```sh
+cloudflared access tcp --hostname k.example.com --url 127.0.0.1:6443
+```
+
+### Updating kubeconfig
+
+You can then extend your kubeconfig by setting the proxy-url value to route traffic through the TCP tunnel.
+
+```yaml
+clusters:
+- cluster:
+    server: https://127.0.0.1:6443     # The value just has to be set.
+    proxy-url: socks5://localhost:6443 # The same as the --url value in cloudflared access command.
+```
+
+This setup ensures that your kubectl commands will work correctly when using a Cloudflare Tunnel.
