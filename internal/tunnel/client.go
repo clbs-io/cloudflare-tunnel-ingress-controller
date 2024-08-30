@@ -232,93 +232,75 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 	}
 
 	tunnelConfig := &tc.Config
-	tunnelConfigUpdated := false
-	hasKubernetesApiTunnelConfigured := false
 
-	if tunnelConfig.Ingress == nil {
-		tunnelConfig.Ingress = make([]cloudflare.UnvalidatedIngressRule, 0)
+	proposed_ingress := make([]cloudflare.UnvalidatedIngressRule, 0)
+	active_ingress := tunnelConfig.Ingress
+	if active_ingress == nil {
+		active_ingress = make([]cloudflare.UnvalidatedIngressRule, 0)
 	}
 
+	tunnelConfigUpdated := false
+	record_id := 0
 	for _, ingressRecords := range config.Ingresses {
 		for _, ingressRecord := range *ingressRecords {
-			is_new := true
-			for _, tunnelRecord := range tunnelConfig.Ingress {
-				// is it new hostname?
-				// if so, we should add it to the configuration
-				if tunnelRecord.Hostname == ingressRecord.Hostname && tunnelRecord.Path == ingressRecord.Path && tunnelRecord.Service == ingressRecord.Service {
-					is_new = false
-					break
+			var new_rule *cloudflare.UnvalidatedIngressRule
+			if record_id >= len(active_ingress) {
+				tunnelConfigUpdated = true
+				new_rule = c.createIngressToTunnelConfigurationStruct(tunnelConfig, logger, ingressRecord)
+			} else {
+				new_rule = &active_ingress[record_id]
+				if new_rule.Hostname != ingressRecord.Hostname || new_rule.Path != ingressRecord.Path || new_rule.Service != ingressRecord.Service {
+					tunnelConfigUpdated = true
+					new_rule = c.createIngressToTunnelConfigurationStruct(tunnelConfig, logger, ingressRecord)
 				}
 			}
-			if is_new {
-				err = c.addNewIngressToTunnelConfigurationStruct(tunnelConfig, logger, ingressRecord)
-				if err != nil {
-					logger.Error(err, "Failed to add new ingress rule to tunnel configuration")
-					return err
-				}
+			proposed_ingress = append(proposed_ingress, *new_rule)
+			record_id++
+		}
+	}
 
+	create_kube_api_tunnel := false
+	if record_id < len(active_ingress) {
+		new_rule := &active_ingress[record_id]
+		if active_ingress[record_id].Hostname == config.KubernetesApiTunnelConfig.Domain && active_ingress[record_id].Service == config.KubernetesApiTunnelConfig.GetService() {
+			if config.KubernetesApiTunnelConfig.Enabled {
+				proposed_ingress = append(proposed_ingress, *new_rule)
+			} else {
 				tunnelConfigUpdated = true
 			}
+		} else {
+			create_kube_api_tunnel = config.KubernetesApiTunnelConfig.Enabled
 		}
+	} else {
+		create_kube_api_tunnel = config.KubernetesApiTunnelConfig.Enabled
 	}
 
-	// delete hostnames
-	for tc_ingress_idx := len(tunnelConfig.Ingress) - 1; tc_ingress_idx >= 0; tc_ingress_idx-- {
-		tunnelRecord := tunnelConfig.Ingress[tc_ingress_idx]
-
-		if tunnelRecord.Service == "http_status:404" {
-			// Do not delete http_status:404 rule
-			continue
-		}
-
-		still_exists := false
-		for _, ingress := range config.Ingresses {
-			for _, ingressRecord := range *ingress {
-				// is it new hostname?
-				// if so, we should add it to the configuration
-				if ingressRecord.Hostname == tunnelRecord.Hostname && ingressRecord.Path == tunnelRecord.Path && ingressRecord.Service == tunnelRecord.Service {
-					still_exists = true
-					break
-				}
-			}
-			if still_exists {
-				break
-			}
-		}
-
-		if !still_exists && config.KubernetesApiTunnelConfig.Enabled {
-			if tunnelRecord.Hostname == config.KubernetesApiTunnelConfig.Domain && tunnelRecord.Service == config.KubernetesApiTunnelConfig.GetService() {
-				still_exists = true
-				hasKubernetesApiTunnelConfigured = true
-			}
-		}
-
-		if !still_exists {
-			tunnelConfig.Ingress = append(tunnelConfig.Ingress[:tc_ingress_idx], tunnelConfig.Ingress[tc_ingress_idx+1:]...)
-			tunnelConfigUpdated = true
-		}
-	}
-
-	if !hasKubernetesApiTunnelConfigured && config.KubernetesApiTunnelConfig.Enabled {
-		newIngressRule := cloudflare.UnvalidatedIngressRule{
+	if create_kube_api_tunnel {
+		new_rule := cloudflare.UnvalidatedIngressRule{
 			Hostname: config.KubernetesApiTunnelConfig.Domain,
 			Service:  config.KubernetesApiTunnelConfig.GetService(),
 		}
 
 		var tmp *cloudflare.OriginRequestConfig
-		if tmp = newIngressRule.OriginRequest; tmp == nil {
+		if tmp = new_rule.OriginRequest; tmp == nil {
 			tmp = &cloudflare.OriginRequestConfig{}
-			newIngressRule.OriginRequest = tmp
+			new_rule.OriginRequest = tmp
 		}
 
 		tmp.ProxyType = &socksProxyType
 
-		c.appendIngress(tunnelConfig, newIngressRule)
+		proposed_ingress = append(proposed_ingress, new_rule)
 		tunnelConfigUpdated = true
 	}
 
 	if tunnelConfigUpdated {
-		c.flush404IfLast(tunnelConfig)
+		if len(proposed_ingress) > 0 {
+			proposed_ingress = append(proposed_ingress, cloudflare.UnvalidatedIngressRule{
+				Service: "http_status:404",
+			})
+		}
+
+		tunnelConfig.Ingress = proposed_ingress
 
 		_, err = c.cloudflareAPI.UpdateTunnelConfiguration(ctx, cloudflare.AccountIdentifier(c.accountID), cloudflare.TunnelConfigurationParams{
 			TunnelID: c.tunnelID,
@@ -441,10 +423,10 @@ func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config 
 	return nil
 }
 
-func (c *Client) addNewIngressToTunnelConfigurationStruct(tunnelConfig *cloudflare.TunnelConfiguration, logger logr.Logger, ingress *IngressConfig) error {
+func (c *Client) createIngressToTunnelConfigurationStruct(tunnelConfig *cloudflare.TunnelConfiguration, logger logr.Logger, ingress *IngressConfig) *cloudflare.UnvalidatedIngressRule {
 	logger.Info("Adding new ingress rule to tunnel configuration")
 
-	newIngressRule := cloudflare.UnvalidatedIngressRule{
+	newIngressRule := &cloudflare.UnvalidatedIngressRule{
 		Hostname: ingress.Hostname,
 		Path:     ingress.Path,
 		Service:  ingress.Service,
@@ -490,9 +472,7 @@ func (c *Client) addNewIngressToTunnelConfigurationStruct(tunnelConfig *cloudfla
 		tmp.Http2Origin = ingress.OriginConfig.Http2Origin
 	}
 
-	c.appendIngress(tunnelConfig, newIngressRule)
-
-	return nil
+	return newIngressRule
 }
 
 // appendIngress appends a new ingress rule to the tunnel configuration while keeping the http_status:404 rule at the end
