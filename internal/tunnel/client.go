@@ -475,21 +475,6 @@ func (c *Client) createIngressToTunnelConfigurationStruct(tunnelConfig *cloudfla
 	return newIngressRule
 }
 
-// appendIngress appends a new ingress rule to the tunnel configuration while keeping the http_status:404 rule at the end
-func (c *Client) appendIngress(tunnelConfig *cloudflare.TunnelConfiguration, newIngressRule cloudflare.UnvalidatedIngressRule) {
-	last_id := len(tunnelConfig.Ingress) - 1
-	has_http_status_404 := last_id >= 0 && tunnelConfig.Ingress[last_id].Service == "http_status:404"
-	if has_http_status_404 {
-		// Keep the http_status:404 rule at the end (if it exists)
-		tunnelConfig.Ingress = append(tunnelConfig.Ingress[:last_id], newIngressRule, tunnelConfig.Ingress[last_id])
-	} else {
-		// Append the new rule and append also the new http_status:404 rule as the last rule
-		tunnelConfig.Ingress = append(tunnelConfig.Ingress, newIngressRule, cloudflare.UnvalidatedIngressRule{
-			Service: "http_status:404",
-		})
-	}
-}
-
 func (c *Client) getDnsZoneMap(ctx context.Context, logger logr.Logger) (map[string]string, error) {
 	// get the zone id
 	zones, err := c.cloudflareAPI.ListZones(ctx)
