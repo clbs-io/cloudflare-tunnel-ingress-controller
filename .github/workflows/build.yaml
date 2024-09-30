@@ -30,19 +30,19 @@ jobs:
       - name: setup docker
         uses: docker/setup-buildx-action@v3
 
-      - name: login to ghcr.io
+      - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          registry: ${{ secrets.CONTAINER_REGISTRY }}
+          username: ${{ secrets.CONTAINER_REGISTRY_USER }}
+          password: ${{ secrets.CONTAINER_REGISTRY_PASS }}
 
       - name: docker metadata
         uses: docker/metadata-action@v5
         id: meta
         with:
           images: |
-            ghcr.io/${{ github.repository }}
+            ${{ secrets.CONTAINER_REGISTRY }}/${{ github.repository }}
           tags: |
             type=ref,event=branch,suffix=-${{ github.sha }}
             type=sha,format=long
@@ -55,7 +55,9 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: |
+            ${{ secrets.CONTAINER_REGISTRY }}/${{ github.repository }}:latest
+            ${{ secrets.CONTAINER_REGISTRY }}/${{ github.repository }}:${{github.sha}}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.set-env.outputs.version }}

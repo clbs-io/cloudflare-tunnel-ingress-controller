@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/clbs-io/cloudflare-tunnel-ingress-controller
+  repository: registry.clbs.io/clbs-io/cloudflare-tunnel-ingress-controller
   tag: ""
   pullPolicy: IfNotPresent
   pullSecrets: []
@@ -14,7 +14,7 @@ resources:
 
 ingressClass:
   name: cloudflare-tunnel
-  controller: github.com/clbs-io/cloudflare-tunnel-ingress
+  controller: github.com/clbs-io/cloudflare-tunnel-ingress-controller
   isDefaultClass: false
 
 config:
