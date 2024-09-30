@@ -20,12 +20,13 @@ jobs:
         with:
           version: "latest"
 
+      # Be ware that special chars here (e.g. $) must be escaped by backslash in GitHub Secrets!
       - name: Helm Registry Login
-        run: echo "${{ secrets.HELM_PASSWORD }}" | helm registry login ${{ secrets.HELM_REGISTRY }} --username ${{ secrets.HELM_USERNAME }} --password-stdin
+        run: echo "${{ secrets.HELM_PASSWORD }}" | helm registry login ${{ secrets.HELM_REGISTRY }}/${{ github.repository_owner }} --username ${{ secrets.HELM_USERNAME }} --password-stdin
 
       - name: Package Helm chart
         run: helm package .
         working-directory: ./charts/cloudflare-tunnel-ingress-controller
 
       - name: Publish Helm chart
-        run: helm push ./charts/cloudflare-tunnel-ingress-controller/*.tgz oci://${{ secrets.HELM_REGISTRY }}
+        run: helm push ./charts/cloudflare-tunnel-ingress-controller/*.tgz oci://${{ secrets.HELM_REGISTRY }}/${{ github.repository_owner }}
