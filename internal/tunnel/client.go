@@ -499,7 +499,6 @@ func (c *Client) createDNSRecords(ctx context.Context, logger logr.Logger, zoneI
 	// create the DNS records
 	for _, hostname := range hostnames {
 		_, err := c.cloudflareAPI.CreateDNSRecord(ctx, cloudflare.ZoneIdentifier(zoneID), cloudflare.CreateDNSRecordParams{
-			ZoneID:  zoneID,
 			Type:    "CNAME",
 			Proxied: &truth,
 			Name:    hostname,
