@@ -10,12 +10,23 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - name: Checkout
+      - name: checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.head_ref }} # checkout the correct branch name
+          fetch-tags: true
 
-      - name: Set up Helm
+      - name: detect version
+        id: set-env
+        run: echo "version=`echo $(git describe --tags --abbrev=0 --exact-match || echo 'v0.0.0')`" >> $GITHUB_OUTPUT
+
+      # Set appVersion in all Chart.yaml files under folder ./charts/
+      - name: version Helm Chart
+        shell: bash
+        run: |
+          find ./charts -name Chart.yaml -maxdepth 2 -exec sed -i "s/appVersion: .*/appVersion: ${{ steps.set-env.outputs.version }}/g" {} \;
+
+      - name: set up Helm
         uses: azure/setup-helm@v4
         with:
           version: "latest"
@@ -24,9 +35,9 @@ jobs:
       - name: Helm Registry Login
         run: echo "${{ secrets.HELM_PASSWORD }}" | helm registry login ${{ secrets.HELM_REGISTRY }}/${{ github.repository_owner }} --username ${{ secrets.HELM_USERNAME }} --password-stdin
 
-      - name: Package Helm chart
-        run: helm package .
-        working-directory: ./charts/cloudflare-tunnel-ingress-controller
-
-      - name: Publish Helm chart
-        run: helm push ./charts/cloudflare-tunnel-ingress-controller/*.tgz oci://${{ secrets.HELM_REGISTRY }}/${{ github.repository_owner }}
+      - name: package and publish Helm chart
+        shell: bash
+        run: |
+          for dir in $(find ./charts -name Chart.yaml -maxdepth 2 -exec dirname {} \;); do
+            (cd $dir && helm package . && helm push *.tgz oci://${{ secrets.HELM_REGISTRY }}/${{ github.repository_owner }})
+          done
