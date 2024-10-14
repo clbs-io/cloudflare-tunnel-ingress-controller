@@ -15,7 +15,7 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     strategy:
       matrix:
-        target: [taskmaster]
+        target: [main]
 
     steps:
       - name: checkout
