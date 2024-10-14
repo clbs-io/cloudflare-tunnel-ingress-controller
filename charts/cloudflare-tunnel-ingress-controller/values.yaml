@@ -1,6 +1,6 @@
 image:
-  repository: registry.clbs.io/clbs-io/cloudflare-tunnel-ingress-controller
-  tag: ""
+  repository: registry.clbs.io/clbs-io/cloudflare-tunnel-ingress-controller/main
+  tag:
   pullPolicy: IfNotPresent
   pullSecrets: []
 
