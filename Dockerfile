@@ -1,7 +1,5 @@
 # syntax=docker/dockerfile:1
-ARG ALPINE_VERSION=3.20
-
-FROM --platform=$BUILDPLATFORM golang:1.22-alpine${ALPINE_VERSION} AS builder
+FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS builder
 ARG TARGETOS TARGETARCH
 ARG VERSION=dev
 
@@ -15,7 +13,7 @@ COPY . .
 
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-X 'main.Version=$VERSION'" -o cloudflare-tunnel-ingress-controller ./cmd/controller
 
-FROM alpine:${ALPINE_VERSION} AS main
+FROM alpine:latest AS main
 
 COPY --from=builder /app/cloudflare-tunnel-ingress-controller /cloudflare-tunnel-ingress-controller
 
