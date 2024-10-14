@@ -2,8 +2,8 @@ name: Publish Helm chart
 
 on:
   workflow_run:
-    workflows: [ "Set Version" ]
-    types: [ completed ]
+    workflows: ["Set Version"]
+    types: [completed]
 
 jobs:
   publish:
@@ -16,6 +16,16 @@ jobs:
           ref: ${{ github.head_ref }} # checkout the correct branch name
           fetch-tags: true
 
+      # Run the script only if there are changes in the folders ./charts/ or ./deploy/
+      - name: Check for changes in specific folders
+        id: check_changes
+        run: |
+          if git diff --name-only HEAD^ HEAD | grep -qE '^charts/|^deploy/'; then
+            echo "Changes detected in charts or deploy folder"
+          else
+            exit 0
+          fi
+
       - name: detect version
         id: set-env
         run: echo "version=`echo $(git describe --tags --abbrev=0 --exact-match || echo 'v0.0.0')`" >> $GITHUB_OUTPUT
@@ -24,6 +34,11 @@ jobs:
       - name: version Helm Chart
         shell: bash
         run: |
+          export CHAT_VERSION=${{ steps.set-env.outputs.version }}
+          if [[ $CHAT_VERSION == v* ]]; then
+            export CHAT_VERSION=${CHAT_VERSION:1}
+          fi
+          find ./charts -name Chart.yaml -maxdepth 2 -exec sed -i "s/version: .*/version: ${CHAT_VERSION}/g" {} \;
           find ./charts -name Chart.yaml -maxdepth 2 -exec sed -i "s/appVersion: .*/appVersion: ${{ steps.set-env.outputs.version }}/g" {} \;
 
       - name: set up Helm
@@ -39,5 +54,5 @@ jobs:
         shell: bash
         run: |
           for dir in $(find ./charts -name Chart.yaml -maxdepth 2 -exec dirname {} \;); do
-            (cd $dir && helm package . && helm push *.tgz oci://${{ secrets.HELM_REGISTRY }}/${{ github.repository_owner }})
+            (cd $dir && helm package . && helm push *.tgz oci://${{ secrets.HELM_REGISTRY }}/${{ github.repository }}/charts)
           done

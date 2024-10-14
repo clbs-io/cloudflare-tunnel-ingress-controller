@@ -13,6 +13,9 @@ jobs:
 
     runs-on: self-hosted
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      matrix:
+        target: [taskmaster]
 
     steps:
       - name: checkout
@@ -42,7 +45,7 @@ jobs:
         id: meta
         with:
           images: |
-            ${{ secrets.CONTAINER_REGISTRY }}/${{ github.repository }}
+            ${{ secrets.CONTAINER_REGISTRY }}/${{ github.repository }}/${{ matrix.target }}
           tags: |
             type=ref,event=branch,suffix=-${{ github.sha }}
             type=sha,format=long
@@ -53,11 +56,10 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          target: ${{ matrix.target }}
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: |
-            ${{ secrets.CONTAINER_REGISTRY }}/${{ github.repository }}:latest
-            ${{ secrets.CONTAINER_REGISTRY }}/${{ github.repository }}:${{github.sha}}
+          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.set-env.outputs.version }}
