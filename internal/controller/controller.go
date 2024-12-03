@@ -152,6 +152,12 @@ func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
+	err = c.ensureStatus(ctx, reqLogger, ingress)
+	if err != nil {
+		reqLogger.Error(err, "failed to ensure status")
+		return ctrl.Result{}, err
+	}
+
 	return ctrl.Result{}, nil
 }
 
