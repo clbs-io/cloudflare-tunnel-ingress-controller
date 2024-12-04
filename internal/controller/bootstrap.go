@@ -16,8 +16,13 @@ type IngressControllerOptions struct {
 }
 
 func RegisterIngressController(logger logr.Logger, mgr manager.Manager, options IngressControllerOptions) (*IngressController, error) {
-	controller := NewIngressController(logger.WithName("ingress-controller"), mgr.GetClient(), options.TunnelClient, options.IngressClassName, options.ControllerClassName, options.CloudflaredConfig)
-	err := builder.
+	controller, err := NewIngressController(logger.WithName("ingress-controller"), mgr.GetClient(), mgr.GetConfig(), options.TunnelClient, options.IngressClassName, options.ControllerClassName, options.CloudflaredConfig)
+	if err != nil {
+		logger.WithName("register-controller").Error(err, "could not create ingress controller")
+		return nil, err
+	}
+
+	err = builder.
 		ControllerManagedBy(mgr).
 		For(&networkingv1.Ingress{}).
 		Complete(controller)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-logr/logr"
 	networkingv1 "k8s.io/api/networking/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func (c *IngressController) ensureStatus(ctx context.Context, logger logr.Logger, ing *networkingv1.Ingress) error {
@@ -32,8 +33,11 @@ func (c *IngressController) ensureStatus(ctx context.Context, logger logr.Logger
 
 	logger.Info("Updating Ingress status")
 
+	ing = ing.DeepCopy()
+
 	for i := len(idx_remove) - 1; i >= 0; i-- {
-		ing.Status.LoadBalancer.Ingress = append(ing.Status.LoadBalancer.Ingress[:idx_remove[i]], ing.Status.LoadBalancer.Ingress[idx_remove[i]+1:]...)
+		remove_idx := idx_remove[i]
+		ing.Status.LoadBalancer.Ingress = append(ing.Status.LoadBalancer.Ingress[:remove_idx], ing.Status.LoadBalancer.Ingress[remove_idx+1:]...)
 	}
 
 	for hostname := range host_add {
@@ -42,7 +46,7 @@ func (c *IngressController) ensureStatus(ctx context.Context, logger logr.Logger
 		})
 	}
 
-	err := c.client.Update(ctx, ing)
+	_, err := c.clientset.NetworkingV1().Ingresses(ing.Namespace).UpdateStatus(ctx, ing, v1.UpdateOptions{})
 	if err != nil {
 		logger.Error(err, "Failed to update Ingress resource with status")
 		return err

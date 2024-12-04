@@ -10,6 +10,8 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	kclientset "k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/utils/env"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -20,6 +22,7 @@ type IngressController struct {
 	logger logr.Logger
 
 	client       client.Client
+	clientset    kclientset.Interface
 	tunnelClient *tunnel.Client
 
 	ingressClassName    string
@@ -41,15 +44,21 @@ var (
 	_namespace = ""
 )
 
-func NewIngressController(logger logr.Logger, client client.Client, tunnelClient *tunnel.Client, ingressClassName, controllerClassName string, cloudflaredConfig CloudflaredConfig) *IngressController {
+func NewIngressController(logger logr.Logger, client client.Client, config *rest.Config, tunnelClient *tunnel.Client, ingressClassName, controllerClassName string, cloudflaredConfig CloudflaredConfig) (*IngressController, error) {
 	kubernetes_api_tunnel_enabled, _ := env.GetBool("KUBERNETES_API_TUNNEL_ENABLED", false)
 	kubernetes_api_tunnel_server := os.Getenv("KUBERNETES_API_TUNNEL_SERVER")
 	kubernetes_api_tunnel_domain := os.Getenv("KUBERNETES_API_TUNNEL_DOMAIN")
 	kubernetes_api_tunnel_cf_access_app_name := os.Getenv("KUBERNETES_API_TUNNEL_CF_ACCESS_APP_NAME")
 
+	clientset, err := kclientset.NewForConfig(config)
+	if err != nil {
+		return nil, err
+	}
+
 	return &IngressController{
 		logger:              logger,
 		client:              client,
+		clientset:           clientset,
 		tunnelClient:        tunnelClient,
 		ingressClassName:    ingressClassName,
 		controllerClassName: controllerClassName,
@@ -68,7 +77,7 @@ func NewIngressController(logger logr.Logger, client client.Client, tunnelClient
 				CloudflareAccessAppName: kubernetes_api_tunnel_cf_access_app_name,
 			},
 		},
-	}
+	}, nil
 }
 
 func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
