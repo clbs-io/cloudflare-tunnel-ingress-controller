@@ -12,7 +12,8 @@ import (
 
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/controller"
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
-	"github.com/cloudflare/cloudflare-go"
+	"github.com/cloudflare/cloudflare-go/v4"
+	"github.com/cloudflare/cloudflare-go/v4/option"
 	"github.com/go-logr/logr"
 	"go.uber.org/zap"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -68,8 +69,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	cloudflareAPI, err := cloudflare.NewWithAPIToken(cloudflareAPIToken)
-	if err != nil {
+	cf_opts := []option.RequestOption{
+		option.WithAPIToken(cloudflareAPIToken),
+	}
+
+	cloudflareAPI := cloudflare.NewClient(cf_opts...)
+	if cloudflareAPI == nil {
 		logger.Error(err, "could not create cloudflare API client")
 		os.Exit(1)
 	}

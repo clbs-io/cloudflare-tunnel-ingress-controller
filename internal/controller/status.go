@@ -12,7 +12,7 @@ func (c *IngressController) ensureStatus(ctx context.Context, logger logr.Logger
 	host_add := make(map[string]struct{})
 	for _, ingressRecords := range c.tunnelConfig.Ingresses {
 		for _, ingress := range *ingressRecords {
-			if ingress.Hostname != "" {
+			if len(ingress.Hostname) > 0 {
 				host_add[ingress.Hostname] = struct{}{}
 			}
 		}

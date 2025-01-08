@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
+	"github.com/cloudflare/cloudflare-go/v4/zero_trust"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -92,124 +93,87 @@ func (c *IngressController) harvestRules(ctx context.Context, logger logr.Logger
 
 			tunnelService := fmt.Sprintf("%s://%s.%s:%d", scheme, path.Backend.Service.Name, ingress.Namespace, portNumber)
 
-			tunnelIng := tunnel.IngressConfig{
+			tunnelIng := &zero_trust.TunnelConfigurationGetResponseConfigIngress{
 				Hostname: rule.Host,
 				Path:     path.Path,
 				Service:  tunnelService,
 			}
-			origin_config := &tunnel.IngressOriginConfig{}
-			origin_config_set := false
+			origin_config := &tunnelIng.OriginRequest
 
 			for k, v := range ingress.Annotations {
 				if k == AnnotationOriginConnectTimeout {
 					t, err := time.ParseDuration(v)
 					if err != nil {
-						logger.Error(err, "Failed to parse duration", "annotation", k)
+						logger.Error(err, "Failed to parse origin connect timeout", "annotation", k)
 					} else {
-						origin_config_set = true
-						origin_config.ConnectTimeout = &t
+						origin_config.ConnectTimeout = t.Nanoseconds()
 					}
 				} else if k == AnnotationOriginTlsTimeout {
 					t, err := time.ParseDuration(v)
 					if err != nil {
-						logger.Error(err, "Failed to parse duration", "annotation", k)
+						logger.Error(err, "Failed to parse origin tls timeout", "annotation", k)
 					} else {
-						origin_config_set = true
-						origin_config.TLSTimeout = &t
+						origin_config.TLSTimeout = t.Nanoseconds()
 					}
 				} else if k == AnnotationOriginTcpKeepalive {
 					t, err := time.ParseDuration(v)
 					if err != nil {
-						logger.Error(err, "Failed to parse duration", "annotation", k)
+						logger.Error(err, "Failed to parse origin tcp keepalive", "annotation", k)
 					} else {
-						origin_config_set = true
-						origin_config.TCPKeepAlive = &t
+						origin_config.TCPKeepAlive = t.Nanoseconds()
 					}
 				} else if k == AnnotationOriginNoHappyEyeballs {
 					t, err := strconv.ParseBool(v)
 					if err != nil {
-						logger.Error(err, "Failed to parse duration", "annotation", k)
+						logger.Error(err, "Failed to parse origin no happy eyeballs", "annotation", k)
 					} else {
-						origin_config_set = true
-						origin_config.NoHappyEyeballs = &t
+						origin_config.NoHappyEyeballs = t
 					}
 				} else if k == AnnotationOriginKeepaliveConnections {
 					t, err := strconv.Atoi(v)
 					if err != nil {
-						logger.Error(err, "Failed to parse duration", "annotation", k)
+						logger.Error(err, "Failed to parse origin keepalive connections", "annotation", k)
 					} else {
-						origin_config_set = true
-						origin_config.KeepAliveConnections = &t
+						origin_config.KeepAliveConnections = int64(t)
 					}
 				} else if k == AnnotationOriginKeepaliveTimeout {
 					t, err := time.ParseDuration(v)
 					if err != nil {
-						logger.Error(err, "Failed to parse duration", "annotation", k)
+						logger.Error(err, "Failed to parse origin keepalive timeout", "annotation", k)
 					} else {
-						origin_config_set = true
-						origin_config.KeepAliveTimeout = &t
+						origin_config.KeepAliveTimeout = t.Nanoseconds()
 					}
 				} else if k == AnnotationOriginHttpHostHeader {
-					origin_config_set = true
-					origin_config.HTTPHostHeader = &v
+					origin_config.HTTPHostHeader = v
 				} else if k == AnnotationOriginServerName {
-					origin_config_set = true
-					origin_config.OriginServerName = &v
+					origin_config.OriginServerName = v
 				} else if k == AnnotationOriginNoTlsVerify {
 					t, err := strconv.ParseBool(v)
 					if err != nil {
-						logger.Error(err, "Failed to parse duration", "annotation", k)
+						logger.Error(err, "Failed to parse origin no tls verify", "annotation", k)
 					} else {
-						origin_config_set = true
-						origin_config.NoTLSVerify = &t
+						origin_config.NoTLSVerify = t
 					}
 				} else if k == AnnotationOriginDisableChunkedEncoding {
 					t, err := strconv.ParseBool(v)
 					if err != nil {
-						logger.Error(err, "Failed to parse duration", "annotation", k)
+						logger.Error(err, "Failed to parse origin disable chunked encoding", "annotation", k)
 					} else {
-						origin_config_set = true
-						origin_config.DisableChunkedEncoding = &t
-					}
-				} else if k == AnnotationOriginBastionMode {
-					t, err := strconv.ParseBool(v)
-					if err != nil {
-						logger.Error(err, "Failed to parse duration", "annotation", k)
-					} else {
-						origin_config_set = true
-						origin_config.BastionMode = &t
-					}
-				} else if k == AnnotationOriginProxyAddress {
-					origin_config_set = true
-					origin_config.ProxyAddress = &v
-				} else if k == AnnotationOriginProxyPort {
-					t, err := strconv.Atoi(v)
-					if err != nil || t < 1 || t > 65535 {
-						logger.Error(err, "Failed to parse duration", "annotation", k)
-					} else {
-						u := uint(t)
-						origin_config_set = true
-						origin_config.ProxyPort = &u
+						origin_config.DisableChunkedEncoding = t
 					}
 				} else if k == AnnotationOriginProxyType {
-					origin_config_set = true
-					origin_config.ProxyType = &v
+					origin_config.ProxyType = v
 				} else if k == AnnotationOriginHttp2Origin {
 					t, err := strconv.ParseBool(v)
 					if err != nil {
 						logger.Error(err, "Failed to parse duration", "annotation", k)
 					} else {
-						origin_config_set = true
-						origin_config.Http2Origin = &t
+						origin_config.HTTP2Origin = t
 					}
 				}
 			}
 
-			if origin_config_set {
-				tunnelIng.OriginConfig = origin_config
-			}
-
-			cfg = append(cfg, &tunnelIng)
+			cfg = append(cfg, tunnelIng)
 		}
 	}
 
