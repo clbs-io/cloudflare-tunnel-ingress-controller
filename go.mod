@@ -2,7 +2,7 @@ module github.com/clbs-io/cloudflare-tunnel-ingress-controller
 
 go 1.23.0
 
-toolchain go1.24.0
+toolchain go1.24.1
 
 require (
 	github.com/cloudflare/cloudflare-go/v4 v4.1.0
