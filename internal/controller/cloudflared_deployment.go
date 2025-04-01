@@ -148,21 +148,21 @@ func (c *IngressController) updateCloudflaredDeploymentIfNeeded(ctx context.Cont
 		return err
 	}
 
-	if !equality.Semantic.DeepDerivative(dep.ObjectMeta.Labels, foundDeployment.ObjectMeta.Labels) {
-		logger.V(1).Info("Found difference in the Deployment labels according to configuration", "currentDeployment", foundDeployment.ObjectMeta.Labels, "newDeployment", dep.ObjectMeta.Labels)
+	if !equality.Semantic.DeepDerivative(dep.Labels, foundDeployment.Labels) {
+		logger.V(1).Info("Found difference in the Deployment labels according to configuration", "currentDeployment", foundDeployment.Labels, "newDeployment", dep.Labels)
 		if err = c.client.Update(ctx, dep); err != nil {
-			foundDeployment.ObjectMeta.Labels = dep.ObjectMeta.Labels
+			foundDeployment.Labels = dep.Labels
 			logger.Error(err, "Failed to update Deployment", "Deployment.Namespace", foundDeployment.Namespace, "Deployment.Name", foundDeployment.Name)
 			return err
 		}
 		logger.Info("Updated Deployment according to configuration", "Deployment.Namespace", foundDeployment.Namespace, "Deployment.Name", foundDeployment.Name)
 	}
 
-	if (dep.ObjectMeta.Annotations == nil && foundDeployment.ObjectMeta.Annotations != nil) ||
-		!equality.Semantic.DeepDerivative(dep.ObjectMeta.Annotations, foundDeployment.ObjectMeta.Annotations) {
-		logger.V(1).Info("Found difference in the Deployment annotations according to configuration", "currentDeployment", foundDeployment.ObjectMeta.Annotations, "newDeployment", dep.ObjectMeta.Annotations)
+	if (dep.Annotations == nil && foundDeployment.Annotations != nil) ||
+		!equality.Semantic.DeepDerivative(dep.Annotations, foundDeployment.Annotations) {
+		logger.V(1).Info("Found difference in the Deployment annotations according to configuration", "currentDeployment", foundDeployment.Annotations, "newDeployment", dep.Annotations)
 		if err = c.client.Update(ctx, dep); err != nil {
-			foundDeployment.ObjectMeta.Annotations = dep.ObjectMeta.Annotations
+			foundDeployment.Annotations = dep.Annotations
 			logger.Error(err, "Failed to update Deployment", "Deployment.Namespace", foundDeployment.Namespace, "Deployment.Name", foundDeployment.Name)
 			return err
 		}
