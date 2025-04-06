@@ -17,7 +17,7 @@ type Config struct {
 }
 
 // List of records for single ingress resource.
-type IngressRecords = []*zero_trust.TunnelConfigurationGetResponseConfigIngress
+type IngressRecords = []*zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngress
 
 type KubernetesApiTunnelConfig struct {
 	// Enable Kubernetes API Tunnel

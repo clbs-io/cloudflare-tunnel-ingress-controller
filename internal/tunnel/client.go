@@ -44,7 +44,7 @@ func NewClient(cloudflareAPI *cloudflare.Client, accountID, tunnelName string, l
 
 func (c *Client) GetTunnelToken(ctx context.Context) (string, error) {
 	if len(c.tunnelToken) == 0 {
-		tunnel_token, err := c.cloudflareAPI.ZeroTrust.Tunnels.Token.Get(ctx, c.tunnelID, zero_trust.TunnelTokenGetParams{
+		tunnel_token, err := c.cloudflareAPI.ZeroTrust.Tunnels.Cloudflared.Token.Get(ctx, c.tunnelID, zero_trust.TunnelCloudflaredTokenGetParams{
 			AccountID: cloudflare.F(c.accountID),
 		})
 		if err != nil {
@@ -88,7 +88,7 @@ func (c *Client) EnsureTunnelExists(ctx context.Context, logger logr.Logger) err
 		return c.createTunnel(ctx, logger)
 	}
 
-	tunnel, err := c.cloudflareAPI.ZeroTrust.Tunnels.Get(ctx, c.tunnelID, zero_trust.TunnelGetParams{
+	tunnel, err := c.cloudflareAPI.ZeroTrust.Tunnels.Cloudflared.Get(ctx, c.tunnelID, zero_trust.TunnelCloudflaredGetParams{
 		AccountID: cloudflare.F(c.accountID),
 	})
 	if err != nil {
@@ -113,11 +113,11 @@ func (c *Client) createTunnel(ctx context.Context, logger logr.Logger) error {
 		return err
 	}
 
-	tunnel, err := c.cloudflareAPI.ZeroTrust.Tunnels.New(ctx, zero_trust.TunnelNewParams{
+	tunnel, err := c.cloudflareAPI.ZeroTrust.Tunnels.Cloudflared.New(ctx, zero_trust.TunnelCloudflaredNewParams{
 		AccountID:    cloudflare.F(c.accountID),
 		Name:         cloudflare.F(c.tunnelName),
 		TunnelSecret: cloudflare.F(base64.StdEncoding.EncodeToString(secret)),
-		ConfigSrc:    cloudflare.F(zero_trust.TunnelNewParamsConfigSrcCloudflare),
+		ConfigSrc:    cloudflare.F(zero_trust.TunnelCloudflaredNewParamsConfigSrcCloudflare),
 	})
 	if err != nil {
 		logger.Error(err, "Failed to create a tunnel")
@@ -146,7 +146,7 @@ func (c *Client) DeleteFromTunnelConfiguration(ctx context.Context, logger logr.
 }
 
 func (c *Client) deleteFromTunnelConfiguration(ctx context.Context, logger logr.Logger, ingressRecords *IngressRecords) error {
-	tc, err := c.cloudflareAPI.ZeroTrust.Tunnels.Configurations.Get(ctx, c.tunnelID, zero_trust.TunnelConfigurationGetParams{
+	tc, err := c.cloudflareAPI.ZeroTrust.Tunnels.Cloudflared.Configurations.Get(ctx, c.tunnelID, zero_trust.TunnelCloudflaredConfigurationGetParams{
 		AccountID: cloudflare.F(c.accountID),
 	})
 	if err != nil {
@@ -154,12 +154,12 @@ func (c *Client) deleteFromTunnelConfiguration(ctx context.Context, logger logr.
 		return err
 	}
 
-	config := make([]zero_trust.TunnelConfigurationUpdateParamsConfigIngress, 0, len(tc.Config.Ingress))
+	config := make([]zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress, 0, len(tc.Config.Ingress))
 
-	x := zero_trust.NewTunnelConfigurationService()
-	_, err = x.Update(ctx, c.tunnelID, zero_trust.TunnelConfigurationUpdateParams{
+	x := zero_trust.NewTunnelCloudflaredConfigurationService()
+	_, err = x.Update(ctx, c.tunnelID, zero_trust.TunnelCloudflaredConfigurationUpdateParams{
 		AccountID: cloudflare.F(c.accountID),
-		Config: cloudflare.F(zero_trust.TunnelConfigurationUpdateParamsConfig{
+		Config: cloudflare.F(zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfig{
 			Ingress: cloudflare.F(config),
 		}),
 	})
@@ -173,12 +173,12 @@ func (c *Client) deleteFromTunnelConfiguration(ctx context.Context, logger logr.
 		for _, ingRule := range tunnelConfig.Ingress {
 			// we are not checking the service, since it is not important when deleting
 			if ingRule.Hostname != ing.Hostname || ingRule.Path != ing.Path {
-				config = append(config, zero_trust.TunnelConfigurationUpdateParamsConfigIngress{
+				config = append(config, zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress{
 					Hostname: cloudflare.F(ingRule.Hostname),
 					Service:  cloudflare.F(ingRule.Service),
 					Path:     cloudflare.F(ingRule.Path),
-					OriginRequest: cloudflare.F(zero_trust.TunnelConfigurationUpdateParamsConfigIngressOriginRequest{
-						Access: cloudflare.F(zero_trust.TunnelConfigurationUpdateParamsConfigIngressOriginRequestAccess{
+					OriginRequest: cloudflare.F(zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngressOriginRequest{
+						Access: cloudflare.F(zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngressOriginRequestAccess{
 							AUDTag:   cloudflare.F(ingRule.OriginRequest.Access.AUDTag),
 							TeamName: cloudflare.F(ingRule.OriginRequest.Access.TeamName),
 							Required: cloudflare.F(ingRule.OriginRequest.Access.Required),
@@ -204,9 +204,9 @@ func (c *Client) deleteFromTunnelConfiguration(ctx context.Context, logger logr.
 
 	c.flush404IfLast(tunnelConfig)
 
-	_, err = c.cloudflareAPI.ZeroTrust.Tunnels.Configurations.Update(ctx, c.tunnelID, zero_trust.TunnelConfigurationUpdateParams{
+	_, err = c.cloudflareAPI.ZeroTrust.Tunnels.Cloudflared.Configurations.Update(ctx, c.tunnelID, zero_trust.TunnelCloudflaredConfigurationUpdateParams{
 		AccountID: cloudflare.F(c.accountID),
-		Config: cloudflare.F(zero_trust.TunnelConfigurationUpdateParamsConfig{
+		Config: cloudflare.F(zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfig{
 			Ingress: cloudflare.F(config),
 		}),
 	})
@@ -298,7 +298,7 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 }
 
 func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr.Logger, config *Config) error {
-	tc, err := c.cloudflareAPI.ZeroTrust.Tunnels.Configurations.Get(ctx, c.tunnelID, zero_trust.TunnelConfigurationGetParams{
+	tc, err := c.cloudflareAPI.ZeroTrust.Tunnels.Cloudflared.Configurations.Get(ctx, c.tunnelID, zero_trust.TunnelCloudflaredConfigurationGetParams{
 		AccountID: cloudflare.F(c.accountID),
 	})
 	if err != nil {
@@ -353,9 +353,9 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 		}
 	}
 
-	var proposed_ingress []zero_trust.TunnelConfigurationUpdateParamsConfigIngress
+	var proposed_ingress []zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress
 	if tunnelConfigUpdated {
-		proposed_ingress = make([]zero_trust.TunnelConfigurationUpdateParamsConfigIngress, 0)
+		proposed_ingress = make([]zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress, 0)
 		for _, ingressRecords := range config.Ingresses {
 			for _, ingressRecord := range *ingressRecords {
 				new_rule := c.createIngressToTunnelConfigurationStruct(logger, ingressRecord)
@@ -367,10 +367,10 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 	tunnelConfigUpdated = tunnelConfigUpdated || (want_kube_api_tunnel != has_kube_api_tunnel)
 
 	if tunnelConfigUpdated && want_kube_api_tunnel {
-		new_rule := zero_trust.TunnelConfigurationUpdateParamsConfigIngress{
+		new_rule := zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress{
 			Hostname: cloudflare.String(config.KubernetesApiTunnelConfig.Domain),
 			Service:  cloudflare.String(config.KubernetesApiTunnelConfig.GetService()),
-			OriginRequest: cloudflare.F(zero_trust.TunnelConfigurationUpdateParamsConfigIngressOriginRequest{
+			OriginRequest: cloudflare.F(zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngressOriginRequest{
 				ProxyType: cloudflare.F(socksProxyType),
 			}),
 		}
@@ -379,14 +379,14 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 
 	if tunnelConfigUpdated {
 		if len(proposed_ingress) > 0 {
-			proposed_ingress = append(proposed_ingress, zero_trust.TunnelConfigurationUpdateParamsConfigIngress{
+			proposed_ingress = append(proposed_ingress, zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress{
 				Service: cloudflare.String("http_status:404"),
 			})
 		}
 
-		_, err = c.cloudflareAPI.ZeroTrust.Tunnels.Configurations.Update(ctx, c.tunnelID, zero_trust.TunnelConfigurationUpdateParams{
+		_, err = c.cloudflareAPI.ZeroTrust.Tunnels.Cloudflared.Configurations.Update(ctx, c.tunnelID, zero_trust.TunnelCloudflaredConfigurationUpdateParams{
 			AccountID: cloudflare.F(c.accountID),
-			Config: cloudflare.F(zero_trust.TunnelConfigurationUpdateParamsConfig{
+			Config: cloudflare.F(zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfig{
 				Ingress: cloudflare.F(proposed_ingress),
 			}),
 		})
@@ -512,14 +512,14 @@ func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config 
 	return nil
 }
 
-func (c *Client) createIngressToTunnelConfigurationStruct(logger logr.Logger, ingress *zero_trust.TunnelConfigurationGetResponseConfigIngress) *zero_trust.TunnelConfigurationUpdateParamsConfigIngress {
+func (c *Client) createIngressToTunnelConfigurationStruct(logger logr.Logger, ingress *zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngress) *zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress {
 	logger.Info("Adding new ingress rule to tunnel configuration")
 
-	newIngressRule := &zero_trust.TunnelConfigurationUpdateParamsConfigIngress{
+	newIngressRule := &zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress{
 		Hostname: cloudflare.String(ingress.Hostname),
 		Service:  cloudflare.String(ingress.Service),
-		OriginRequest: cloudflare.F(zero_trust.TunnelConfigurationUpdateParamsConfigIngressOriginRequest{
-			Access: cloudflare.F(zero_trust.TunnelConfigurationUpdateParamsConfigIngressOriginRequestAccess{
+		OriginRequest: cloudflare.F(zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngressOriginRequest{
+			Access: cloudflare.F(zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngressOriginRequestAccess{
 				AUDTag:   cloudflare.F(ingress.OriginRequest.Access.AUDTag),
 				TeamName: cloudflare.F(ingress.OriginRequest.Access.TeamName),
 				Required: cloudflare.F(ingress.OriginRequest.Access.Required),
@@ -602,9 +602,9 @@ func (c *Client) createDNSRecords(ctx context.Context, logger logr.Logger, zoneI
 	return nil
 }
 
-func (c *Client) flush404IfLast(tunnelConfig *zero_trust.TunnelConfigurationGetResponseConfig) {
+func (c *Client) flush404IfLast(tunnelConfig *zero_trust.TunnelCloudflaredConfigurationGetResponseConfig) {
 	if len(tunnelConfig.Ingress) == 1 && tunnelConfig.Ingress[0].Service == "http_status:404" {
-		tunnelConfig.Ingress = make([]zero_trust.TunnelConfigurationGetResponseConfigIngress, 0)
+		tunnelConfig.Ingress = make([]zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngress, 0)
 	}
 }
 

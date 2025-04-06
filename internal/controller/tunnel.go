@@ -93,7 +93,7 @@ func (c *IngressController) harvestRules(ctx context.Context, logger logr.Logger
 
 			tunnelService := fmt.Sprintf("%s://%s.%s:%d", scheme, path.Backend.Service.Name, ingress.Namespace, portNumber)
 
-			tunnelIng := &zero_trust.TunnelConfigurationGetResponseConfigIngress{
+			tunnelIng := &zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngress{
 				Hostname: rule.Host,
 				Path:     path.Path,
 				Service:  tunnelService,
