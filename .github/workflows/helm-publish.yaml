@@ -49,7 +49,7 @@ jobs:
 
       # Be ware that special chars here (e.g. $) must be escaped by backslash in GitHub Secrets!
       - name: Helm Registry Login
-        run: echo "${{ secrets.HELM_PASSWORD }}" | helm registry login ${{ secrets.HELM_REGISTRY }}/${{ github.repository_owner }} --username ${{ secrets.HELM_USERNAME }} --password-stdin
+        run: echo "${{ secrets.HELM_PASSWORD }}" | helm registry login ${{ secrets.HELM_REGISTRY }} --username ${{ secrets.HELM_USERNAME }} --password-stdin
 
       - name: package and publish Helm chart
         shell: bash
