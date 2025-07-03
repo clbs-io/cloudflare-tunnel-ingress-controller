@@ -19,7 +19,7 @@ ingressClass:
 
 config:
   cloudflared:
-    image: cloudflare/cloudflared:2025.6.1
+    image: cloudflare/cloudflared:2025.7.0
     imagePullPolicy: IfNotPresent
 
   cloudflare:
