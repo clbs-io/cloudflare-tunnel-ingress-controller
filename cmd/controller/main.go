@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"os"
 	"os/signal"
@@ -17,7 +16,6 @@ import (
 	"github.com/go-logr/logr"
 	"go.uber.org/zap"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	logzap "sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -122,23 +120,27 @@ func main() {
 		}
 	}()
 
-	for {
-		err = ctrlr.EnsureCloudflaredDeploymentExists(ctx, logger)
-		if !errors.Is(err, &cache.ErrCacheNotStarted{}) && err != nil {
-			logger.Error(err, "could not ensure cloudflared deployment exists")
-			stop()
-			os.Exit(1)
-		}
-
-		if err == nil {
-			break
-		}
-
+	logger.Info("Waiting for cache to sync...")
+	for !mgr.GetCache().WaitForCacheSync(ctx) {
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(100 * time.Millisecond):
 		}
+	}
+
+	for {
+		err = ctrlr.EnsureCloudflaredDeploymentExists(ctx, logger)
+		if err != nil {
+			logger.Error(err, "could not ensure cloudflared deployment exists")
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(1 * time.Second):
+			}
+			continue
+		}
+		break
 	}
 
 	wg.Wait()
