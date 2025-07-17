@@ -573,9 +573,9 @@ func (c *Client) createDNSRecords(ctx context.Context, logger logr.Logger, zoneI
 	for _, hostname := range hostnames {
 		_, err := c.cloudflareAPI.DNS.Records.New(ctx, dns.RecordNewParams{
 			ZoneID: cloudflare.String(zoneID),
-			Record: dns.RecordParam{
+			Body: dns.CNAMERecordParam{
 				Proxied: cloudflare.Bool(truth),
-				Type:    cloudflare.F(dns.RecordTypeCNAME),
+				Type:    cloudflare.F(dns.CNAMERecordTypeCNAME),
 				Name:    cloudflare.String(hostname),
 				Content: cloudflare.String(c.tunnelID + "." + tunnelDomain),
 				Comment: cloudflare.String("Automatically created by Cloudflare Tunnel Ingress Controller"),
@@ -644,7 +644,7 @@ func (c *Client) ensureKubeApiApplication(ctx context.Context, logger logr.Logge
 		Body: zero_trust.AccessApplicationNewParamsBodySelfHostedApplication{
 			Name:   cloudflare.String(config.KubernetesApiTunnelConfig.CloudflareAccessAppName),
 			Domain: cloudflare.String(config.KubernetesApiTunnelConfig.Domain),
-			Type:   cloudflare.String(string(zero_trust.ApplicationTypeSelfHosted)),
+			Type:   cloudflare.F(zero_trust.ApplicationTypeSelfHosted),
 		},
 		ZoneID: cloudflare.F(zone_id),
 	})
