@@ -5,7 +5,7 @@ go 1.24.0
 toolchain go1.24.5
 
 require (
-	github.com/cloudflare/cloudflare-go/v4 v4.6.0
+	github.com/cloudflare/cloudflare-go/v5 v5.0.0
 	github.com/cloudflare/cloudflare-go/v5 v5.0.0
 	github.com/go-logr/logr v1.4.3
 	go.uber.org/zap v1.27.0
