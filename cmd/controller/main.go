@@ -11,8 +11,8 @@ import (
 
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/controller"
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
-	"github.com/cloudflare/cloudflare-go/v4"
-	"github.com/cloudflare/cloudflare-go/v4/option"
+	"github.com/cloudflare/cloudflare-go/v5"
+	"github.com/cloudflare/cloudflare-go/v5/option"
 	"github.com/go-logr/logr"
 	"go.uber.org/zap"
 	ctrl "sigs.k8s.io/controller-runtime"

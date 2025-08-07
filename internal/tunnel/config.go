@@ -3,7 +3,7 @@ package tunnel
 import (
 	"fmt"
 
-	"github.com/cloudflare/cloudflare-go/v4/zero_trust"
+	"github.com/cloudflare/cloudflare-go/v5/zero_trust"
 	"k8s.io/apimachinery/pkg/types"
 )
 

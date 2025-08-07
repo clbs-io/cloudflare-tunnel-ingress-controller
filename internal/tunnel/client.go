@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cloudflare/cloudflare-go/v4"
-	"github.com/cloudflare/cloudflare-go/v4/dns"
-	"github.com/cloudflare/cloudflare-go/v4/zero_trust"
-	"github.com/cloudflare/cloudflare-go/v4/zones"
+	"github.com/cloudflare/cloudflare-go/v5"
+	"github.com/cloudflare/cloudflare-go/v5/dns"
+	"github.com/cloudflare/cloudflare-go/v5/zero_trust"
+	"github.com/cloudflare/cloudflare-go/v5/zones"
 	"github.com/go-logr/logr"
 )
 
