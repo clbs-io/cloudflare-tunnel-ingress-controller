@@ -13,7 +13,7 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           ref: ${{ github.head_ref }} # checkout the correct branch name
           fetch-depth: 0 # fetch the whole repo history
