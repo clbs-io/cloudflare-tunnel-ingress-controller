@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
-	"github.com/cloudflare/cloudflare-go/v5/zero_trust"
+	"github.com/cloudflare/cloudflare-go/v6/zero_trust"
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
