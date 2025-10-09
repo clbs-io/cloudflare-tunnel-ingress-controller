@@ -13,7 +13,7 @@ COPY . .
 
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-X 'main.Version=$VERSION'" -o cloudflare-tunnel-ingress-controller ./cmd/controller
 
-FROM alpine:3.22.1 AS main
+FROM alpine:3.22.2 AS main
 
 COPY --from=builder /app/cloudflare-tunnel-ingress-controller /cloudflare-tunnel-ingress-controller
 
