@@ -15,7 +15,7 @@ COPY . .
 
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-X 'main.Version=$VERSION'" -o cloudflare-tunnel-ingress-controller ./cmd/controller
 
-FROM scratch AS aqapi
+FROM scratch AS main
 
 WORKDIR /app
 
