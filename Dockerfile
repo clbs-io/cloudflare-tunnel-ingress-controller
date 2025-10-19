@@ -5,6 +5,8 @@ ARG VERSION=dev
 
 WORKDIR /app
 
+RUN apk update && apk add --no-cache git ca-certificates tzdata && update-ca-certificates
+
 COPY go.mod go.sum ./
 
 RUN go mod download
@@ -13,8 +15,13 @@ COPY . .
 
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags="-X 'main.Version=$VERSION'" -o cloudflare-tunnel-ingress-controller ./cmd/controller
 
-FROM alpine:3.22.2 AS main
+FROM scratch AS aqapi
 
-COPY --from=builder /app/cloudflare-tunnel-ingress-controller /cloudflare-tunnel-ingress-controller
+WORKDIR /app
 
-ENTRYPOINT ["/cloudflare-tunnel-ingress-controller"]
+COPY --from=builder /app/cloudflare-tunnel-ingress-controller .
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+USER 1001
+
+ENTRYPOINT ["/app/cloudflare-tunnel-ingress-controller"]
