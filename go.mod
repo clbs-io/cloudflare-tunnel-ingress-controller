@@ -3,7 +3,7 @@ module github.com/clbs-io/cloudflare-tunnel-ingress-controller
 go 1.25
 
 require (
-	github.com/cloudflare/cloudflare-go/v6 v6.2.0
+	github.com/cloudflare/cloudflare-go/v6 v6.3.0
 	github.com/go-logr/logr v1.4.3
 	go.uber.org/zap v1.27.1
 	k8s.io/api v0.34.2
