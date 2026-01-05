@@ -65,7 +65,7 @@ export CLOUDFLARE_ACCOUNT_ID=<your-cloudflare-account-id>
 
 helm upgrade --install \
   --namespace cloudflare-tunnel-system --create-namespace \
-  cloudflare-tunnel-ingress oci://registry.clbs.io/cloudflare-tunnel-ingress-controller/cloudflare-tunnel-ingress-controller \
+  cloudflare-tunnel-ingress oci://registry.clbs.io/clbs-io/cloudflare-tunnel-ingress-controller/charts/cloudflare-tunnel-ingress-controller \
   --set config.cloudflare.apiToken.existingSecret.name=cloudflare-api-token \
   --set config.cloudflare.accountID=$CLOUDFLARE_ACCOUNT_ID \
   --set config.cloudflare.tunnelName=tunnel-ingress-demo
@@ -82,7 +82,7 @@ helm uninstall --namespace cloudflare-tunnel-system cloudflare-tunnel-ingress
 The `kubectl port-forward` command utilizes an HTTP connection upgrade, which can fail if the connection is established via a Cloudflare (CF) Tunnel.
 To resolve this issue, direct TCP access to the Kubernetes API server is required.
 
-The clbs Cloudflare Tunnel Ingress Controller automatically creates access records that allow the use of the `cloudflared access tcp` command to directly forward to the Kubernetes API server.
+The Cloudflare Tunnel Ingress Controller automatically creates access records that allow the use of the `cloudflared access tcp` command to directly forward to the Kubernetes API server.
 
 ### Command Usage
 
@@ -105,7 +105,7 @@ You can then extend your kubeconfig by setting the proxy-url value to route traf
 clusters:
 - cluster:
     server: https://127.0.0.1:6443     # The value just has to be set.
-    proxy-url: socks5://localhost:6443 # The same as the --url value in cloudflared access command.
+    proxy-url: socks5://127.0.0.1:6443 # The same as the --url value in cloudflared access command.
 ```
 
 This setup ensures that your kubectl commands will work correctly when using a Cloudflare Tunnel.
