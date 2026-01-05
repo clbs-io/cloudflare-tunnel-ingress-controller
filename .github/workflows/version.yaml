@@ -6,27 +6,26 @@ on:
 
 jobs:
   build:
+    runs-on: ubuntu-latest
     permissions:
       contents: write
 
-    runs-on: ubuntu-latest
-
     steps:
-      - name: checkout
+      - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.head_ref }} # checkout the correct branch name
-          fetch-depth: 0 # fetch the whole repo history
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
 
-      - name: version
+      - name: Version
         id: version
         uses: codacy/git-version@2.8.6
         with:
           release-branch: main
-          minor-identifier: "feat"
+          minor-identifier: feat
           prefix: v
 
-      - name: tag
+      - name: Tag
         uses: actions/github-script@v8.0.0
         with:
           script: |
