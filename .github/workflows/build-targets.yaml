@@ -29,7 +29,7 @@ jobs:
         run: echo "version=`echo $(git describe --tags --abbrev=0 --exact-match || echo 'v0.0.0')`" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
