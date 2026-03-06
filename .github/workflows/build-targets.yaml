@@ -48,8 +48,6 @@ jobs:
           images: |
             ${{ secrets.CONTAINER_REGISTRY }}/${{ github.repository }}/${{ matrix.target }}
           tags: |
-            type=ref,event=branch,suffix=-${{ github.sha }}
-            type=sha,format=long
             type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', 'main') }}
             type=raw,value=${{ steps.set-env.outputs.version }}
 
