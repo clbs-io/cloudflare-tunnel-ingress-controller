@@ -40,7 +40,7 @@ func NewServer(logger logr.Logger, port int) *Server {
 }
 
 func (s *Server) Start(ctx context.Context) error {
-	go func() {
+	go func() { //nolint:gosec // G118: context.Background is intentional — parent ctx is cancelled when shutdown runs
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
