@@ -1,6 +1,7 @@
 name: Build Docker Image
 
 on:
+  workflow_dispatch:
   workflow_run:
     workflows: ["Set Version"]
     types: [completed]
@@ -8,7 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     permissions:
       contents: read
       packages: write
@@ -20,13 +21,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
           fetch-tags: true
 
       - name: Detect version
         id: set-env
-        run: echo "version=`echo $(git describe --tags --abbrev=0 --exact-match || echo 'v0.0.0')`" >> $GITHUB_OUTPUT
+        run: |
+          VERSION=$(git describe --tags --exact-match 2>/dev/null)
+          if [ -z "$VERSION" ]; then
+            echo "Error: current commit is not tagged" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4

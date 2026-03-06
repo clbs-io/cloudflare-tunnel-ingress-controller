@@ -1,6 +1,7 @@
 name: Publish Helm chart
 
 on:
+  workflow_dispatch:
   workflow_run:
     workflows: ["Set Version"]
     types: [completed]
@@ -8,19 +9,21 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
           fetch-tags: true
 
       - name: Check for changes in charts or deploy folders
         id: check_changes
         run: |
-          if git diff --name-only HEAD^ HEAD | grep -qE '^charts/|^deploy/'; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+          elif git diff --name-only HEAD^ HEAD | grep -qE '^charts/|^deploy/'; then
             echo "changed=true" >> $GITHUB_OUTPUT
           else
             echo "changed=false" >> $GITHUB_OUTPUT
@@ -29,7 +32,13 @@ jobs:
       - name: Detect version
         if: steps.check_changes.outputs.changed == 'true'
         id: set-env
-        run: echo "version=`echo $(git describe --tags --abbrev=0 --exact-match || echo 'v0.0.0')`" >> $GITHUB_OUTPUT
+        run: |
+          VERSION=$(git describe --tags --exact-match 2>/dev/null)
+          if [ -z "$VERSION" ]; then
+            echo "Error: current commit is not tagged" >&2
+            exit 1
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
       - name: Version Helm Chart
         if: steps.check_changes.outputs.changed == 'true'
