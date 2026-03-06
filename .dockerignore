@@ -1,0 +1,10 @@
+.git
+.github
+.mirrord
+.golangci.yml
+.dockerignore
+.helmignore
+charts/
+CLAUDE.md
+ISSUES.md
+Dockerfile
