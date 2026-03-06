@@ -1,0 +1,6 @@
+.git
+.github
+.mirrord
+.dockerignore
+.golangci.yml
+*.md

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
@@ -20,6 +21,7 @@ const appName = "cloudflare-tunnel-cloudflared"
 type cloudflaredDeploymentConfig struct {
 	cloudflaredImage           string
 	cloudflaredImagePullPolicy string
+	tunnelTokenLck             sync.RWMutex
 	tunnelToken                string
 }
 
@@ -78,7 +80,15 @@ func (c *IngressController) newCloudflaredDeployment() (*appsv1.Deployment, erro
 	replicas := int32(1)
 	ns := namespace()
 
-	cloudflaredVersion := strings.Split(c.cloudflaredDeploymentConfig.cloudflaredImage, ":")[1]
+	c.cloudflaredDeploymentConfig.tunnelTokenLck.RLock()
+	tunnelToken := c.cloudflaredDeploymentConfig.tunnelToken
+	c.cloudflaredDeploymentConfig.tunnelTokenLck.RUnlock()
+
+	parts := strings.SplitN(c.cloudflaredDeploymentConfig.cloudflaredImage, ":", 2)
+	cloudflaredVersion := ""
+	if len(parts) == 2 {
+		cloudflaredVersion = parts[1]
+	}
 	if cloudflaredVersion == "" || cloudflaredVersion == "latest" {
 		return nil, errors.New("cloudflared image version is required, latest is not allowed")
 	}
@@ -126,7 +136,7 @@ func (c *IngressController) newCloudflaredDeployment() (*appsv1.Deployment, erro
 								"0.0.0.0:9090",
 								"run",
 								"--token",
-								c.cloudflaredDeploymentConfig.tunnelToken,
+								tunnelToken,
 							},
 						},
 					},
@@ -142,41 +152,38 @@ func (c *IngressController) newCloudflaredDeployment() (*appsv1.Deployment, erro
 func (c *IngressController) updateCloudflaredDeploymentIfNeeded(ctx context.Context, logger logr.Logger, foundDeployment *appsv1.Deployment) error {
 	ns := namespace()
 
-	dep, err := c.newCloudflaredDeployment()
+	desired, err := c.newCloudflaredDeployment()
 	if err != nil {
 		logger.Error(err, "Failed to create new Deployment resource", "Deployment.Namespace", ns, "Deployment.Name", appName)
 		return err
 	}
 
-	if !equality.Semantic.DeepDerivative(dep.Labels, foundDeployment.Labels) {
-		logger.V(1).Info("Found difference in the Deployment labels according to configuration", "currentDeployment", foundDeployment.Labels, "newDeployment", dep.Labels)
-		if err = c.client.Update(ctx, dep); err != nil {
-			foundDeployment.Labels = dep.Labels
-			logger.Error(err, "Failed to update Deployment", "Deployment.Namespace", foundDeployment.Namespace, "Deployment.Name", foundDeployment.Name)
-			return err
-		}
-		logger.Info("Updated Deployment according to configuration", "Deployment.Namespace", foundDeployment.Namespace, "Deployment.Name", foundDeployment.Name)
+	needsUpdate := false
+
+	if !equality.Semantic.DeepDerivative(desired.Labels, foundDeployment.Labels) {
+		logger.V(1).Info("Found difference in the Deployment labels according to configuration", "currentDeployment", foundDeployment.Labels, "newDeployment", desired.Labels)
+		needsUpdate = true
 	}
 
-	if (dep.Annotations == nil && foundDeployment.Annotations != nil) ||
-		!equality.Semantic.DeepDerivative(dep.Annotations, foundDeployment.Annotations) {
-		logger.V(1).Info("Found difference in the Deployment annotations according to configuration", "currentDeployment", foundDeployment.Annotations, "newDeployment", dep.Annotations)
-		if err = c.client.Update(ctx, dep); err != nil {
-			foundDeployment.Annotations = dep.Annotations
-			logger.Error(err, "Failed to update Deployment", "Deployment.Namespace", foundDeployment.Namespace, "Deployment.Name", foundDeployment.Name)
-			return err
-		}
-		logger.Info("Updated Deployment according to configuration", "Deployment.Namespace", foundDeployment.Namespace, "Deployment.Name", foundDeployment.Name)
+	if (desired.Annotations == nil && foundDeployment.Annotations != nil) ||
+		!equality.Semantic.DeepDerivative(desired.Annotations, foundDeployment.Annotations) {
+		logger.V(1).Info("Found difference in the Deployment annotations according to configuration", "currentDeployment", foundDeployment.Annotations, "newDeployment", desired.Annotations)
+		needsUpdate = true
 	}
 
-	if !equality.Semantic.DeepEqual(dep.Spec, foundDeployment.Spec) {
-		logger.V(1).Info("Found difference in the Deployment spec according to configuration", "currentDeployment", foundDeployment.Spec, "newDeployment", dep.Spec)
-		if err = c.client.Update(ctx, dep); err != nil {
-			foundDeployment.Spec = dep.Spec
-			logger.Error(err, "Failed to update Deployment", "Deployment.Namespace", foundDeployment.Namespace, "Deployment.Name", foundDeployment.Name)
+	if !equality.Semantic.DeepEqual(desired.Spec, foundDeployment.Spec) {
+		logger.V(1).Info("Found difference in the Deployment spec according to configuration", "currentDeployment", foundDeployment.Spec, "newDeployment", desired.Spec)
+		needsUpdate = true
+	}
+
+	if needsUpdate {
+		// Copy ResourceVersion from the existing object for optimistic concurrency
+		desired.ResourceVersion = foundDeployment.ResourceVersion
+		if err = c.client.Update(ctx, desired); err != nil {
+			logger.Error(err, "Failed to update Deployment", "Deployment.Namespace", ns, "Deployment.Name", appName)
 			return err
 		}
-		logger.Info("Updated Deployment according to configuration", "Deployment.Namespace", foundDeployment.Namespace, "Deployment.Name", foundDeployment.Name)
+		logger.Info("Updated Deployment according to configuration", "Deployment.Namespace", ns, "Deployment.Name", appName)
 	}
 
 	return nil

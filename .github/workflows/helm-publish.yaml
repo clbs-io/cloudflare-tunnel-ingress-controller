@@ -13,7 +13,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
         with:
-          ref: ${{ github.head_ref }}
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
           fetch-tags: true
 
@@ -21,33 +21,45 @@ jobs:
         id: check_changes
         run: |
           if git diff --name-only HEAD^ HEAD | grep -qE '^charts/|^deploy/'; then
-            echo "Changes detected in charts or deploy folder"
+            echo "changed=true" >> $GITHUB_OUTPUT
           else
-            exit 0
+            echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Detect version
+        if: steps.check_changes.outputs.changed == 'true'
         id: set-env
         run: echo "version=`echo $(git describe --tags --abbrev=0 --exact-match || echo 'v0.0.0')`" >> $GITHUB_OUTPUT
 
       - name: Version Helm Chart
+        if: steps.check_changes.outputs.changed == 'true'
         run: |
-          export CHAT_VERSION=${{ steps.set-env.outputs.version }}
-          if [[ $CHAT_VERSION == v* ]]; then
-            export CHAT_VERSION=${CHAT_VERSION:1}
+          export CHART_VERSION=${{ steps.set-env.outputs.version }}
+          if [[ $CHART_VERSION == v* ]]; then
+            export CHART_VERSION=${CHART_VERSION:1}
           fi
-          find ./charts -name Chart.yaml -maxdepth 2 -exec sed -i "s/version: .*/version: ${CHAT_VERSION}/g" {} \;
+          find ./charts -name Chart.yaml -maxdepth 2 -exec sed -i "s/version: .*/version: ${CHART_VERSION}/g" {} \;
           find ./charts -name Chart.yaml -maxdepth 2 -exec sed -i "s/appVersion: .*/appVersion: ${{ steps.set-env.outputs.version }}/g" {} \;
 
       - name: Set up Helm
+        if: steps.check_changes.outputs.changed == 'true'
         uses: azure/setup-helm@v4
         with:
           version: latest
 
+      - name: Lint Helm chart
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          for dir in $(find ./charts -name Chart.yaml -maxdepth 2 -exec dirname {} \;); do
+            helm lint "$dir"
+          done
+
       - name: Login to Helm Registry
+        if: steps.check_changes.outputs.changed == 'true'
         run: echo "${{ secrets.HELM_PASSWORD }}" | helm registry login ${{ secrets.HELM_REGISTRY }} --username ${{ secrets.HELM_USERNAME }} --password-stdin
 
       - name: Package and publish Helm chart
+        if: steps.check_changes.outputs.changed == 'true'
         run: |
           for dir in $(find ./charts -name Chart.yaml -maxdepth 2 -exec dirname {} \;); do
             (cd $dir && helm package . && helm push *.tgz oci://${{ secrets.HELM_REGISTRY }}/${{ github.repository }}/charts)

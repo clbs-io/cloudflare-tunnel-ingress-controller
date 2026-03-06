@@ -41,7 +41,8 @@ type CloudflaredConfig struct {
 }
 
 var (
-	_namespace = ""
+	_namespaceOnce sync.Once
+	_namespace     string
 )
 
 func NewIngressController(logger logr.Logger, client client.Client, config *rest.Config, tunnelClient *tunnel.Client, ingressClassName, controllerClassName string, cloudflaredConfig CloudflaredConfig) (*IngressController, error) {
@@ -111,8 +112,8 @@ func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{}, err
 	}
 
-	if ingress.Spec.IngressClassName != nil && *ingress.Spec.IngressClassName != c.ingressClassName {
-		// This has an ingress class that we don't care about
+	if ingress.Spec.IngressClassName == nil || *ingress.Spec.IngressClassName != c.ingressClassName {
+		// This Ingress has no class set or a different class — skip it
 		return ctrl.Result{}, nil
 	}
 
@@ -121,27 +122,26 @@ func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	// Load all ingress resources on the first reconcile
 	if !c.tunnelConfigInitialized {
-		c.tunnelConfigInitialized = true
 		ingress_list := &networkingv1.IngressList{}
 		err = c.client.List(ctx, ingress_list)
 		if err != nil {
 			reqLogger.Error(err, "failed to list ingress resources")
 			return ctrl.Result{}, err
-		} else {
-			for _, ing := range ingress_list.Items {
-				if ing.Spec.IngressClassName != nil && *ing.Spec.IngressClassName != c.ingressClassName {
-					continue
-				}
-				if ing.GetDeletionTimestamp() != nil {
-					continue
-				}
-				err = c.harvestRules(ctx, reqLogger, c.tunnelConfig, &ing)
-				if err != nil {
-					reqLogger.Error(err, "failed to harvest rules")
-					return ctrl.Result{}, err
-				}
+		}
+		for _, ing := range ingress_list.Items {
+			if ing.Spec.IngressClassName == nil || *ing.Spec.IngressClassName != c.ingressClassName {
+				continue
+			}
+			if ing.GetDeletionTimestamp() != nil {
+				continue
+			}
+			err = c.harvestRules(ctx, reqLogger, c.tunnelConfig, &ing)
+			if err != nil {
+				reqLogger.Error(err, "failed to harvest rules")
+				return ctrl.Result{}, err
 			}
 		}
+		c.tunnelConfigInitialized = true
 	}
 
 	if ingress.GetDeletionTimestamp() != nil {
@@ -171,14 +171,11 @@ func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func namespace() string {
-	if _namespace == "" {
+	_namespaceOnce.Do(func() {
 		_namespace = "default"
-
-		ns := os.Getenv("NAMESPACE")
-		if len(ns) > 0 {
+		if ns := os.Getenv("NAMESPACE"); len(ns) > 0 {
 			_namespace = ns
 		}
-	}
-
+	})
 	return _namespace
 }

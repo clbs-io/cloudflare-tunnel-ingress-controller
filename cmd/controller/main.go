@@ -2,14 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/controller"
+	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/health"
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/cloudflare/cloudflare-go/v6"
 	"github.com/cloudflare/cloudflare-go/v6/option"
@@ -50,21 +55,29 @@ func main() {
 
 	logger.Info("Starting Cloudflare Tunnel Ingress Controller, version: "+Version, "version", Version)
 
+	if err := loadConfig(); err != nil {
+		logger.Error(err, "could not load config")
+		os.Exit(1)
+	}
+
+	if err := run(logger); err != nil {
+		logger.Error(err, "controller failed")
+		os.Exit(1)
+	}
+}
+
+func run(logger logr.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	loadConfig(logger)
-
 	cfg, err := config.GetConfig()
 	if err != nil {
-		logger.Error(err, "could not get k8s config")
-		os.Exit(1)
+		return fmt.Errorf("could not get k8s config: %w", err)
 	}
 
 	mgr, err := manager.New(cfg, manager.Options{})
 	if err != nil {
-		logger.Error(err, "could not create manager")
-		os.Exit(1)
+		return fmt.Errorf("could not create manager: %w", err)
 	}
 
 	cf_opts := []option.RequestOption{
@@ -73,8 +86,7 @@ func main() {
 
 	cloudflareAPI := cloudflare.NewClient(cf_opts...)
 	if cloudflareAPI == nil {
-		logger.Error(err, "could not create cloudflare API client")
-		os.Exit(1)
+		return errors.New("could not create cloudflare API client: NewClient returned nil")
 	}
 
 	tunnelClient := tunnel.NewClient(cloudflareAPI, cloudflareAccountID, cloudflareTunnelName, logger)
@@ -89,42 +101,41 @@ func main() {
 		},
 	})
 	if err != nil {
-		logger.Error(err, "could not register ingress controller")
-		os.Exit(1)
+		return fmt.Errorf("could not register ingress controller: %w", err)
 	}
 
 	err = tunnelClient.EnsureTunnelExists(ctx, logger)
 	if err != nil {
-		logger.Error(err, "could not ensure tunnel exists")
-		stop()
-		os.Exit(1)
+		return fmt.Errorf("could not ensure tunnel exists: %w", err)
 	}
 
 	token, err := tunnelClient.GetTunnelToken(ctx)
 	if err != nil {
-		logger.Error(err, "could not get tunnel token")
-		stop()
-		os.Exit(1)
+		return fmt.Errorf("could not get tunnel token: %w", err)
 	}
 	ctrlr.SetTunnelToken(token)
 
-	wg := &sync.WaitGroup{}
-	go func() {
-		defer wg.Done()
-		wg.Add(1)
+	healthSrv := health.NewServer(logger.WithName("health"), 8081)
 
-		err = mgr.Start(ctx)
-		if err != nil {
-			logger.Error(err, "could not start manager")
-			os.Exit(1)
+	var wg sync.WaitGroup
+
+	wg.Go(func() {
+		if err := healthSrv.Start(ctx); err != nil {
+			logger.Error(err, "health server error")
 		}
-	}()
+	})
+
+	wg.Go(func() {
+		if err := mgr.Start(ctx); err != nil {
+			logger.Error(err, "could not start manager")
+		}
+	})
 
 	logger.Info("Waiting for cache to sync...")
 	for !mgr.GetCache().WaitForCacheSync(ctx) {
 		select {
 		case <-ctx.Done():
-			return
+			return nil
 		case <-time.After(100 * time.Millisecond):
 		}
 	}
@@ -135,7 +146,7 @@ func main() {
 			logger.Error(err, "could not ensure cloudflared deployment exists")
 			select {
 			case <-ctx.Done():
-				return
+				return nil
 			case <-time.After(1 * time.Second):
 			}
 			continue
@@ -143,42 +154,50 @@ func main() {
 		break
 	}
 
+	healthSrv.SetReady(true)
+	logger.Info("Controller is ready")
+
 	wg.Wait()
+	return nil
 }
 
-func loadConfig(logger logr.Logger) {
-	defer flag.Parse()
-
+func loadConfig() error {
 	flag.StringVar(&ingressClassName, "ingress-class-name", "cloudflare-tunnel", "Ingress class name to watch for")
 	flag.StringVar(&controllerClassName, "controller-class-name", "clbs.io/cloudflare-tunnel-ingress-controller", "Controller class name to set on Ingress")
+	flag.Parse()
 
-	cloudflareAPIToken = os.Getenv("CLOUDFLARE_API_TOKEN")
+	if tokenFile := os.Getenv("CLOUDFLARE_API_TOKEN_FILE"); tokenFile != "" {
+		token, err := os.ReadFile(filepath.Clean(tokenFile))
+		if err != nil {
+			return fmt.Errorf("could not read CLOUDFLARE_API_TOKEN_FILE: %w", err)
+		}
+		cloudflareAPIToken = strings.TrimSpace(string(token))
+	} else {
+		cloudflareAPIToken = os.Getenv("CLOUDFLARE_API_TOKEN")
+	}
 	if cloudflareAPIToken == "" {
-		logger.Error(nil, "CLOUDFLARE_API_TOKEN is required")
-		os.Exit(1)
+		return errors.New("CLOUDFLARE_API_TOKEN or CLOUDFLARE_API_TOKEN_FILE is required")
 	}
 
 	cloudflaredImage = os.Getenv("CLOUDFLARED_IMAGE")
 	if cloudflaredImage == "" {
-		logger.Error(nil, "CLOUDFLARED_IMAGE is required")
-		os.Exit(1)
+		return errors.New("CLOUDFLARED_IMAGE is required")
 	}
 
 	cloudflaredImagePullPolicy = os.Getenv("CLOUDFLARED_IMAGE_PULL_POLICY")
 	if cloudflaredImagePullPolicy == "" {
-		logger.Error(nil, "CLOUDFLARED_IMAGE_PULL_POLICY is required")
-		os.Exit(1)
+		return errors.New("CLOUDFLARED_IMAGE_PULL_POLICY is required")
 	}
 
 	cloudflareAccountID = os.Getenv("CLOUDFLARE_ACCOUNT_ID")
 	if cloudflareAccountID == "" {
-		logger.Error(nil, "CLOUDFLARE_ACCOUNT_ID is required")
-		os.Exit(1)
+		return errors.New("CLOUDFLARE_ACCOUNT_ID is required")
 	}
 
 	cloudflareTunnelName = os.Getenv("CLOUDFLARE_TUNNEL_NAME")
 	if cloudflareTunnelName == "" {
-		logger.Error(nil, "CLOUDFLARE_TUNNEL_NAME is required")
-		os.Exit(1)
+		return errors.New("CLOUDFLARE_TUNNEL_NAME is required")
 	}
+
+	return nil
 }

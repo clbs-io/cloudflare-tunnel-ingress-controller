@@ -1,81 +1,58 @@
 # Cloudflare Tunnel Ingress Controller
 
-A Kubernetes Ingress Controller that uses Cloudflare Tunnel to expose services to the Internet securely without opening firewall ports.
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Features](#features)
-- [How It Works](#how-it-works)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-- [Configuration](#configuration)
-- [Usage](#usage)
-- [Advanced Features](#advanced-features)
-- [Limitations](#limitations)
-- [Uninstallation](#uninstallation)
-- [About](#about)
-- [License](#license)
+A Kubernetes Ingress Controller that exposes services to the Internet through [Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/) — no open firewall ports required.
 
 ## Overview
 
-This controller is based on the [Kubernetes Ingress Controller for Cloudflare Argo Tunnel](https://github.com/cloudflare/cloudflare-ingress-controller) and the community-made project [STRRL/cloudflare-tunnel-ingress-controller](https://github.com/STRRL/cloudflare-tunnel-ingress-controller).
+This controller watches for Ingress resources, automatically creates Cloudflare Tunnel routes and DNS records, and deploys a `cloudflared` instance to handle traffic. Inspired by [cloudflare/cloudflare-ingress-controller](https://github.com/cloudflare/cloudflare-ingress-controller) and [STRRL/cloudflare-tunnel-ingress-controller](https://github.com/STRRL/cloudflare-tunnel-ingress-controller).
 
 ## Features
 
 - Automatic Cloudflare Tunnel creation and management
-- Automatic DNS record creation for Ingress resources
-- Support for multiple domains across different zones
-- Optional Kubernetes API server access via Cloudflare Tunnel
-- Automatic route configuration based on Ingress resources
+- DNS CNAME record creation for each Ingress host
+- Multiple domains across different Cloudflare zones
+- Configurable backend protocols (`http`, `https`, `tcp`) and origin request settings
+- Optional Kubernetes API server access via Cloudflare Tunnel with Zero Trust
 
 ## How It Works
 
 ![How it works](assets/how-it-works.png)
 
-1. The Ingress Controller creates a new Cloudflare Tunnel on startup or uses an existing one
-2. The controller watches for Ingress resources in the Kubernetes cluster
-3. When a new Ingress resource is created, the controller creates a new route in the Cloudflare Tunnel and creates a DNS CNAME record pointing to the Tunnel hostname
+1. On startup, the controller creates a Cloudflare Tunnel (or reuses an existing one by name)
+2. It watches for Ingress resources with the configured IngressClass
+3. For each Ingress, it creates tunnel routes and DNS CNAME records pointing to the tunnel
 
 ## Prerequisites
 
 ### Cloudflare API Token
 
-Before installing, you need:
+Create an API token at [Cloudflare Dashboard / Profile / API Tokens](https://dash.cloudflare.com/profile/api-tokens) with the following permissions:
 
-1. **Cloudflare API Token** - Create at [Cloudflare / Profile / API Tokens](https://dash.cloudflare.com/profile/api-tokens)
-2. **Cloudflare Account ID** - Find in your Cloudflare dashboard
-
-#### Required API Token Permissions
-
-The API token must have the following permissions:
-- `Account:Cloudflare Tunnel:Edit`
-- `Zone:DNS:Edit`
+- `Account : Cloudflare Tunnel : Edit`
+- `Zone : DNS : Edit`
 
 > [!IMPORTANT]
-> Set up correct permissions for the API token:
->
-> - Set a correct account for the token. Do not use the option *All accounts*, unless you have to!
-> - Set a correct zone for the token. Do not use the option *All zones*, unless you have to!
+> Scope the token to the specific account and zone(s) you need. Avoid using *All accounts* or *All zones* unless necessary.
 
-When creating a new API token, your screen should look like this:
+![Screenshot: Cloudflare API Token creation](assets/create-cloudflare-api-token.png)
 
-![Screenshot from Cloudflare Dashboard, for options when creating new Cloudflare API Token](assets/create-cloudflare-api-token.png)
+You will also need your **Cloudflare Account ID**, which you can find in the Cloudflare dashboard.
 
-#### Create Kubernetes Secret
+### Create Kubernetes Secret
 
-After obtaining an API token, create a Kubernetes Secret:
-
-**Option 1: Using kubectl**
+Create a Secret containing the API token before installing the chart:
 
 ```shell
-kubectl create secret generic --namespace cloudflare-tunnel-system cloudflare-api-token --from-literal=token=<your-cloudflare-api-token>
+kubectl create namespace cloudflare-tunnel-system
+
+kubectl create secret generic cloudflare-api-token \
+  --namespace cloudflare-tunnel-system \
+  --from-literal=token=<your-cloudflare-api-token>
 ```
 
-**Option 2: Using YAML manifest**
+Or using a manifest:
 
 ```yaml
-# cloudflare-api-token.yaml
 apiVersion: v1
 kind: Secret
 metadata:
@@ -83,32 +60,38 @@ metadata:
   namespace: cloudflare-tunnel-system
 type: Opaque
 stringData:
-  token: <your-cloudflare-api-token> # CHANGE ME !!!
-```
-
-```shell
-kubectl apply -f cloudflare-api-token.yaml
+  token: <your-cloudflare-api-token>
 ```
 
 ## Installation
 
-### Using Helm
+### Container Image
 
-The Helm chart is stored in OCI format in our Helm repository.
+The controller image is publicly available — no credentials required:
 
 ```shell
-export CLOUDFLARE_ACCOUNT_ID=<your-cloudflare-account-id>
-export TUNNEL_NAME=<your-tunnel-name>
-
-helm upgrade --install \
-  --namespace cloudflare-tunnel-system --create-namespace \
-  cloudflare-tunnel-ingress oci://registry.clbs.io/clbs-io/cloudflare-tunnel-ingress-controller/charts/cloudflare-tunnel-ingress-controller \
-  --set config.cloudflare.apiToken.existingSecret.name=cloudflare-api-token \
-  --set config.cloudflare.accountID=$CLOUDFLARE_ACCOUNT_ID \
-  --set config.cloudflare.tunnelName=$TUNNEL_NAME
+docker pull registry.clbs.io/clbs-io/cloudflare-tunnel-ingress-controller/main:latest
 ```
 
-### Using ArgoCD
+Multi-architecture builds are available for `linux/amd64` and `linux/arm64`.
+
+### Helm Chart
+
+The chart is published in OCI format:
+
+```shell
+helm upgrade --install \
+  --namespace cloudflare-tunnel-system --create-namespace \
+  cloudflare-tunnel-ingress \
+  oci://registry.clbs.io/clbs-io/cloudflare-tunnel-ingress-controller/charts/cloudflare-tunnel-ingress-controller \
+  --set config.cloudflare.accountID=<your-account-id> \
+  --set config.cloudflare.tunnelName=<your-tunnel-name>
+```
+
+> [!NOTE]
+> This assumes you already created the `cloudflare-api-token` Secret. To use a different Secret name, add `--set config.cloudflare.apiToken.existingSecret.name=<name>`.
+
+### ArgoCD
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -127,20 +110,14 @@ spec:
   source:
     chart: cloudflare-tunnel-ingress-controller
     repoURL: registry.clbs.io/clbs-io/cloudflare-tunnel-ingress-controller/charts
-    targetRevision: 0.5.102
+    targetRevision: "*"
     helm:
       releaseName: cloudflare-tunnel-ingress
       valuesObject:
         config:
           cloudflare:
-            accountID: "d456f88c93489572d0956574f8cc4ca2"
-            apiToken:
-              existingSecret:
-                name: cloudflare-api-token
+            accountID: "<your-account-id>"
             tunnelName: my-tunnel
-          image:
-            pullSecrets:
-              - name: clbs-image-pull-secret
   destination:
     server: "https://kubernetes.default.svc"
     namespace: cloudflare-tunnel-system
@@ -152,115 +129,95 @@ spec:
 
 | Parameter | Description | Example |
 |-----------|-------------|---------|
-| `config.cloudflare.accountID` | Your Cloudflare Account ID | `d456f88c93489572d0956574f8cc4ca2` |
-| `config.cloudflare.tunnelName` | Name for the Cloudflare Tunnel | `my-tunnel` |
-| `config.cloudflare.apiToken.existingSecret.name` | Name of the secret containing the API token | `cloudflare-api-token` |
+| `config.cloudflare.accountID` | Cloudflare Account ID | `d456f88c934...` |
+| `config.cloudflare.tunnelName` | Tunnel name (created if it doesn't exist) | `my-tunnel` |
 
 ### Optional Values
 
-| Parameter | Description |
-|-----------|-------------|
-| `config.cloudflared.image` | Cloudflared image (must have explicit version, not "latest") |
-| `config.cloudflared.imagePullPolicy` | Image pull policy for cloudflared |
-| `ingressClass.name` | IngressClass name |
-| `ingressClass.controller` | IngressClass controller name |
-| `ingressClass.isDefaultClass` | Set as default IngressClass |
-| `image.pullSecrets` | Image pull secrets for controller |
-
-> [!NOTE]
-> Default values can be found in the [values.yaml](charts/cloudflare-tunnel-ingress-controller/values.yaml) file.
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `config.cloudflare.apiToken.existingSecret.name` | Secret name containing the API token | `cloudflare-api-token` |
+| `config.cloudflare.apiToken.existingSecret.key` | Key within the Secret | `token` |
+| `config.cloudflared.image` | Cloudflared sidecar image (**must have explicit tag**) | `cloudflare/cloudflared:2026.2.0` |
+| `config.cloudflared.imagePullPolicy` | Pull policy for cloudflared | `IfNotPresent` |
+| `ingressClass.name` | IngressClass name | `cloudflare-tunnel` |
+| `ingressClass.controller` | Controller class identifier | `clbs.io/cloudflare-tunnel-ingress-controller` |
+| `ingressClass.isDefaultClass` | Set as default IngressClass | `false` |
+| `replicaCount` | Controller replicas | `1` |
+| `image.pullSecrets` | Image pull secrets for controller | `[]` |
+| `resources` | CPU/memory requests and limits | See [values.yaml](charts/cloudflare-tunnel-ingress-controller/values.yaml) |
+| `podSecurityContext` | Pod-level security context | `runAsNonRoot: true`, `runAsUser: 1001` |
+| `securityContext` | Container-level security context | `readOnlyRootFilesystem: true`, drop `ALL` |
+| `nodeSelector` | Node selector for scheduling | `{}` |
+| `tolerations` | Tolerations for scheduling | `[]` |
+| `affinity` | Affinity rules for scheduling | `{}` |
 
 > [!IMPORTANT]
 > The `config.cloudflared.image` must have an explicit version tag. Using `latest` is not supported and will cause an error.
 
-### Kubernetes API Tunnel (Optional)
-
-Enable direct access to Kubernetes API server through Cloudflare Tunnel:
-
-```yaml
-config:
-  kubernetesApiTunnel:
-    enabled: true
-    domain: k.example.com
-    server: kubernetes.default.svc:443
-    cloudflareAccessAppName: "Kubernetes API Tunnel"
-```
+All defaults are in [values.yaml](charts/cloudflare-tunnel-ingress-controller/values.yaml).
 
 ## Usage
 
-### Creating an Ingress Resource
-
-Create an Ingress resource with the `cloudflare-tunnel` IngressClass:
+### Basic Ingress
 
 ```yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: example-ingress
-  namespace: default
+  name: example
 spec:
   ingressClassName: cloudflare-tunnel
   rules:
-  - host: app.example.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: example-service
-            port:
-              number: 80
+    - host: app.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: my-service
+                port:
+                  number: 80
 ```
 
-The controller will automatically:
-1. Create a route in the Cloudflare Tunnel
-2. Create a DNS CNAME record pointing to the tunnel
-3. Configure the tunnel to forward traffic to your service
+The controller will automatically create a tunnel route and a DNS CNAME record for `app.example.com`.
 
-### Supported Path Types
+### Path Types
 
-The controller supports the following `pathType` values:
-- `Prefix` - Matches URL path prefixes (recommended)
-- `ImplementationSpecific` - Uses implementation-specific matching
+- **`Prefix`** — matches URL path prefixes (recommended)
+- **`ImplementationSpecific`** — treated as prefix match
+- **`Exact`** — not supported (silently skipped)
 
-> [!NOTE]
-> `pathType: Exact` is **not supported** and will be silently skipped.
+### Annotations
 
-### Ingress Annotations
-
-The controller supports annotations to customize tunnel behavior for each Ingress resource:
+Customize tunnel behavior per Ingress using annotations with the prefix `cloudflare-tunnel-ingress-controller.clbs.io/`:
 
 #### Backend Protocol
 
 ```yaml
-metadata:
-  annotations:
-    cloudflare-tunnel-ingress-controller.clbs.io/backend-protocol: "http"
+annotations:
+  cloudflare-tunnel-ingress-controller.clbs.io/backend-protocol: "https"
 ```
 
-Controls the protocol used to connect to the backend service.
+Values: `http` (default), `https`, `tcp`
 
-**Values:** `http`, `https`, `tcp` (default: `http`)
+#### Origin Request Settings
 
-#### Origin Request Configuration
-
-Fine-tune how cloudflared connects to your backend services:
-
-| Annotation | Description | Example Value |
-|------------|-------------|---------------|
-| `cloudflare-tunnel-ingress-controller.clbs.io/origin-connect-timeout` | Timeout for establishing connection to origin | `30s` |
-| `cloudflare-tunnel-ingress-controller.clbs.io/origin-tls-timeout` | Timeout for completing TLS handshake | `10s` |
-| `cloudflare-tunnel-ingress-controller.clbs.io/origin-tcp-keepalive` | TCP keepalive interval | `30s` |
-| `cloudflare-tunnel-ingress-controller.clbs.io/origin-no-happy-eyeballs` | Disable Happy Eyeballs for IPv4/IPv6 | `true` |
-| `cloudflare-tunnel-ingress-controller.clbs.io/origin-keepalive-connections` | Maximum keepalive connections | `100` |
-| `cloudflare-tunnel-ingress-controller.clbs.io/origin-keepalive-timeout` | Keepalive timeout | `90s` |
-| `cloudflare-tunnel-ingress-controller.clbs.io/origin-http-host-header` | Custom Host header to send to origin | `internal.example.com` |
-| `cloudflare-tunnel-ingress-controller.clbs.io/origin-server-name` | Server name for TLS verification | `internal.example.com` |
-| `cloudflare-tunnel-ingress-controller.clbs.io/origin-no-tls-verify` | Disable TLS certificate verification | `true` |
-| `cloudflare-tunnel-ingress-controller.clbs.io/origin-disable-chunked-encoding` | Disable chunked transfer encoding | `true` |
-| `cloudflare-tunnel-ingress-controller.clbs.io/origin-proxy-type` | Proxy type for origin connection | `socks5` |
-| `cloudflare-tunnel-ingress-controller.clbs.io/origin-http2origin` | Use HTTP/2 to connect to origin | `true` |
+| Annotation suffix | Description | Example |
+|-------------------|-------------|---------|
+| `origin-connect-timeout` | Connection timeout to origin | `30s` |
+| `origin-tls-timeout` | TLS handshake timeout | `10s` |
+| `origin-tcp-keepalive` | TCP keepalive interval | `30s` |
+| `origin-no-happy-eyeballs` | Disable Happy Eyeballs | `true` |
+| `origin-keepalive-connections` | Max keepalive connections | `100` |
+| `origin-keepalive-timeout` | Keepalive timeout | `90s` |
+| `origin-http-host-header` | Custom Host header | `internal.example.com` |
+| `origin-server-name` | TLS server name | `internal.example.com` |
+| `origin-no-tls-verify` | Skip TLS verification | `true` |
+| `origin-disable-chunked-encoding` | Disable chunked encoding | `true` |
+| `origin-proxy-type` | Proxy type | `socks5` |
+| `origin-http2origin` | Use HTTP/2 to origin | `true` |
 
 #### Example: HTTPS Backend with Self-Signed Certificate
 
@@ -275,144 +232,74 @@ metadata:
 spec:
   ingressClassName: cloudflare-tunnel
   rules:
-  - host: secure.example.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: secure-service
-            port:
-              number: 443
+    - host: secure.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: secure-service
+                port:
+                  number: 443
 ```
 
-#### Example: TCP Backend
+## Kubernetes API Tunnel
 
-```yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: tcp-service
-  annotations:
-    cloudflare-tunnel-ingress-controller.clbs.io/backend-protocol: "tcp"
-spec:
-  ingressClassName: cloudflare-tunnel
-  rules:
-  - host: tcp.example.com
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: tcp-service
-            port:
-              number: 9000
-```
+Enable direct access to the Kubernetes API server through Cloudflare Tunnel with Zero Trust protection. This is useful when `kubectl port-forward` fails through regular tunnel routing due to HTTP connection upgrades.
 
-## Advanced Features
-
-### Accessing Kubernetes API via Cloudflare Tunnel
-
-The `kubectl port-forward` command uses HTTP connection upgrades, which can fail when routed through a Cloudflare Tunnel. To resolve this, you can enable direct TCP access to the Kubernetes API server through the tunnel.
-
-#### Step 1: Enable Kubernetes API Tunnel
-
-Add the following configuration to your Helm values:
+### Step 1: Enable in Helm Values
 
 ```yaml
 config:
   kubernetesApiTunnel:
     enabled: true
-    domain: k.example.com  # Your domain for API access
+    domain: k.example.com
     server: kubernetes.default.svc:443
     cloudflareAccessAppName: "Kubernetes API Tunnel"
 ```
 
-The controller will:
-1. Create a Cloudflare Tunnel route for the specified domain
-2. Create a DNS CNAME record
-3. Create a Cloudflare Access application
+The controller will create a tunnel route, DNS record, and a Cloudflare Access application.
 
 > [!IMPORTANT]
-> The controller creates the Cloudflare Access application but **does not configure access policies**. You must manually configure access policies in the Cloudflare dashboard to control who can access the Kubernetes API.
+> The controller creates the Access application but **does not configure policies**. You must add access policies manually in the Cloudflare dashboard.
 
-#### Step 2: Configure Cloudflare Access Policies
+### Step 2: Configure Access Policies
 
-1. Go to [Cloudflare Zero Trust Dashboard](https://one.dash.cloudflare.com/)
-2. Navigate to **Access** → **Applications**
-3. Find the application named "Kubernetes API Tunnel" (or your custom name)
-4. Add access policies to control authentication (e.g., allow specific email domains, GitHub organizations, etc.)
+1. Go to [Cloudflare Zero Trust Dashboard](https://one.dash.cloudflare.com/) → **Access** → **Applications**
+2. Find the application (default name: "Kubernetes API Tunnel")
+3. Add policies to control who can access the API (email domains, GitHub orgs, etc.)
 
-Without configured policies, the tunnel will be created but access will be denied.
+### Step 3: Connect Locally
 
-#### Step 3: Start Local TCP Tunnel
-
-Run `cloudflared` locally to create a SOCKS5 proxy:
+Run `cloudflared` to create a local SOCKS5 proxy:
 
 ```shell
 cloudflared access tcp --hostname k.example.com --url 127.0.0.1:1080
 ```
 
-This creates a SOCKS5 proxy on `127.0.0.1:1080` that forwards traffic through Cloudflare Access to your Kubernetes API.
-
-#### Step 4: Update kubeconfig
-
-Configure your kubeconfig to route traffic through the SOCKS5 proxy:
+### Step 4: Configure kubeconfig
 
 ```yaml
 clusters:
-- cluster:
-    certificate-authority-data: <your-ca-data>
-    server: https://kubernetes.default.svc:443
-    proxy-url: socks5://127.0.0.1:1080  # Points to cloudflared SOCKS5 proxy
-  name: my-cluster-tunnel
+  - cluster:
+      certificate-authority-data: <your-ca-data>
+      server: https://kubernetes.default.svc:443
+      proxy-url: socks5://127.0.0.1:1080
+    name: my-cluster-tunnel
 ```
 
-The key settings:
-- `server` - The actual Kubernetes API server address (inside the cluster)
-- `proxy-url` - The local SOCKS5 proxy created by cloudflared (port 1080, not 6443)
-- `certificate-authority-data` - Your cluster's CA certificate (optional if using insecure-skip-tls-verify)
-
-This setup ensures kubectl commands (including `port-forward`) work correctly through the Cloudflare Tunnel.
+- `server` — the Kubernetes API address inside the cluster
+- `proxy-url` — the local SOCKS5 proxy from cloudflared
 
 ## Limitations
 
-### Single Tunnel Architecture
-
-- The controller manages **exactly one Cloudflare Tunnel** per installation
-- All Ingress resources share the same tunnel
-- Multiple tunnel support is not available
-
-### Cloudflared Deployment
-
-- Fixed at **1 replica** (no high availability option)
-- Resource limits/requests cannot be configured for cloudflared pod
-- Metrics port hardcoded to `9090`
-- Image tag must be explicit (e.g., `2025.11.1`) - **`latest` tag is not supported**
-
-### Path Type Support
-
-- ✅ Supported: `Prefix`, `ImplementationSpecific`
-- ❌ Not Supported: `Exact` (silently skipped)
-
-### TLS Handling
-
-- Controller does not manage Ingress TLS certificates
-- All TLS termination happens at Cloudflare edge
-- Backend connections use protocol specified in annotations
-
-### Kubernetes API Tunnel
-
-- Controller only creates the Cloudflare Access application shell
-- **Access policies must be configured manually** in Cloudflare dashboard
-- No automatic authentication/authorization configuration
-
-### Namespace Handling
-
-- Cloudflared pod deploys in the controller's namespace
-- Controller watches Ingress resources across all namespaces
+- **Single tunnel per installation** — all Ingress resources share one Cloudflare Tunnel
+- **Cloudflared deployment** — fixed at 1 replica; resource limits not configurable; metrics port hardcoded to `9090`
+- **`pathType: Exact`** — not supported (silently skipped)
+- **TLS** — all TLS termination happens at Cloudflare edge; the controller does not manage certificates
+- **Kubernetes API Tunnel** — access policies must be configured manually in Cloudflare dashboard
+- **Namespace** — cloudflared deploys in the controller's namespace; Ingress resources are watched across all namespaces
 
 ## Uninstallation
 
@@ -420,10 +307,13 @@ This setup ensures kubectl commands (including `port-forward`) work correctly th
 helm uninstall --namespace cloudflare-tunnel-system cloudflare-tunnel-ingress
 ```
 
+> [!NOTE]
+> The Cloudflare Tunnel and its DNS records are **not** automatically deleted on uninstall. Clean them up manually in the Cloudflare dashboard if needed.
+
 ## About
 
-This project is part of the [clbs.io](https://clbs.io) initiative - a public-source-code brand by [cybros labs](https://www.cybroslabs.com).
+This project is part of the [clbs.io](https://clbs.io) initiative — a public-source-code brand by [cybros labs](https://www.cybroslabs.com).
 
 ## License
 
-This project is licensed under the Mozilla Public License 2.0 - see the [LICENSE](LICENSE) file for details.
+[Mozilla Public License 2.0](LICENSE)

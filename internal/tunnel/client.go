@@ -156,18 +156,6 @@ func (c *Client) deleteFromTunnelConfiguration(ctx context.Context, logger logr.
 
 	config := make([]zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress, 0, len(tc.Config.Ingress))
 
-	x := zero_trust.NewTunnelCloudflaredConfigurationService()
-	_, err = x.Update(ctx, c.tunnelID, zero_trust.TunnelCloudflaredConfigurationUpdateParams{
-		AccountID: cloudflare.F(c.accountID),
-		Config: cloudflare.F(zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfig{
-			Ingress: cloudflare.F(config),
-		}),
-	})
-	if err != nil {
-		logger.Error(err, "Failed to update tunnel configuration")
-		return err
-	}
-
 	tunnelConfig := &tc.Config
 	for _, ing := range *ingressRecords {
 		for _, ingRule := range tunnelConfig.Ingress {
@@ -227,7 +215,7 @@ func (c *Client) deleteFromDns(ctx context.Context, logger logr.Logger, ingressR
 	zones_recods_cache := make(map[string][]*dns.RecordResponse)
 
 	for _, ingress := range *ingressRecords {
-		for zoneID, zoneName := range zone_map {
+		for zoneName, zoneID := range zone_map {
 			if !strings.HasSuffix(ingress.Hostname, zoneName) {
 				continue
 			}
@@ -236,7 +224,7 @@ func (c *Client) deleteFromDns(ctx context.Context, logger logr.Logger, ingressR
 				ch := c.cloudflareAPI.DNS.Records.ListAutoPaging(ctx, dns.RecordListParams{
 					ZoneID: cloudflare.F(zoneID),
 					Content: cloudflare.F(dns.RecordListParamsContent{
-						Exact: cloudflare.String(tunnelDomain),
+						Exact: cloudflare.String(c.tunnelID + "." + tunnelDomain),
 					}),
 				})
 				zone_records = make([]*dns.RecordResponse, 0)
@@ -342,7 +330,8 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 		} else {
 			// Otherwise, we need to check if all records match
 			for i, ingressRecord := range *ingressRecords {
-				if active_ingress[record_offset+i].Hostname != ingressRecord.Hostname || active_ingress[record_offset+i].Path != ingressRecord.Path || active_ingress[record_offset+i].Service != ingressRecord.Service {
+				idx := record_offset + i
+				if idx >= len(active_ingress) || active_ingress[idx].Hostname != ingressRecord.Hostname || active_ingress[idx].Path != ingressRecord.Path || active_ingress[idx].Service != ingressRecord.Service {
 					tunnelConfigUpdated = true
 					break
 				}
@@ -429,7 +418,7 @@ func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config 
 				ch := c.cloudflareAPI.DNS.Records.ListAutoPaging(ctx, dns.RecordListParams{
 					ZoneID: cloudflare.F(zoneID),
 					Content: cloudflare.F(dns.RecordListParamsContent{
-						Exact: cloudflare.String(tunnelDomain),
+						Exact: cloudflare.String(c.tunnelID + "." + tunnelDomain),
 					}),
 				})
 				dns_records := make([]*dns.RecordResponse, 0)
@@ -465,7 +454,7 @@ func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config 
 				ch := c.cloudflareAPI.DNS.Records.ListAutoPaging(ctx, dns.RecordListParams{
 					ZoneID: cloudflare.F(zoneID),
 					Content: cloudflare.F(dns.RecordListParamsContent{
-						Exact: cloudflare.String(tunnelDomain),
+						Exact: cloudflare.String(c.tunnelID + "." + tunnelDomain),
 					}),
 				})
 				dns_records := make([]*dns.RecordResponse, 0)
@@ -629,9 +618,9 @@ func (c *Client) ensureKubeApiApplication(ctx context.Context, logger logr.Logge
 	}
 
 	var zone_id string
-	for k, v := range zone_map {
-		if strings.HasSuffix(config.KubernetesApiTunnelConfig.Domain, v) {
-			zone_id = k
+	for zoneName, zoneID := range zone_map {
+		if strings.HasSuffix(config.KubernetesApiTunnelConfig.Domain, zoneName) {
+			zone_id = zoneID
 		}
 	}
 

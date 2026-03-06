@@ -1,7 +1,9 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ .Release.Name }}-cloudflared
+  name: {{ include "cloudflare-tunnel-ingress-controller.fullname" . }}-cloudflared
+  labels:
+    {{- include "cloudflare-tunnel-ingress-controller.labels" . | nindent 4 }}
 rules:
   - apiGroups:
       - apps
@@ -14,3 +16,18 @@ rules:
       - update
       - create
       - delete
+  - apiGroups:
+      - coordination.k8s.io
+    resources:
+      - leases
+    verbs:
+      - get
+      - create
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - events
+    verbs:
+      - create
+      - patch

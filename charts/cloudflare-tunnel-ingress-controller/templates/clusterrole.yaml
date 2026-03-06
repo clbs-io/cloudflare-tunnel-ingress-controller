@@ -1,7 +1,9 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ .Release.Name }}-watch-ingresses
+  name: {{ include "cloudflare-tunnel-ingress-controller.fullname" . }}-watch-ingresses
+  labels:
+    {{- include "cloudflare-tunnel-ingress-controller.labels" . | nindent 4 }}
 rules:
   - apiGroups:
       - ""
@@ -21,20 +23,10 @@ rules:
       - list
       - watch
       - update
+      - patch
   - apiGroups:
       - networking.k8s.io
     resources:
       - ingresses/status
     verbs:
       - update
-  - apiGroups:
-      - apps
-    resources:
-      - deployments
-    verbs:
-      - get
-      - list
-      - watch
-      - update
-      - create
-      - delete

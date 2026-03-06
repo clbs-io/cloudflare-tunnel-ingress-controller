@@ -6,6 +6,7 @@ import (
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/go-logr/logr"
 	networkingv1 "k8s.io/api/networking/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const ingressTunnelFinalizer = "finalizer.cloudflare-tunnel-ingress-controller.clbs.io/tunnel"
@@ -21,11 +22,12 @@ func (c *IngressController) ensureFinalizers(ctx context.Context, logger logr.Lo
 
 	if !containsFinalizer {
 		logger.Info("Adding Finalizer for the Ingress resource")
+		patch := client.MergeFrom(ing.DeepCopy())
 		ing.SetFinalizers(append(ing.GetFinalizers(), ingressTunnelFinalizer))
 
-		err := c.client.Update(ctx, ing)
+		err := c.client.Patch(ctx, ing, patch)
 		if err != nil {
-			logger.Error(err, "Failed to update Ingress resource with a finalizer", "finalizer", ingressTunnelFinalizer)
+			logger.Error(err, "Failed to patch Ingress resource with a finalizer", "finalizer", ingressTunnelFinalizer)
 			return err
 		}
 	}
@@ -39,11 +41,12 @@ func (c *IngressController) finalizeIngress(ctx context.Context, logger logr.Log
 		return err
 	}
 
+	patch := client.MergeFrom(ing.DeepCopy())
 	ing.SetFinalizers(removeFinalizer(ing.GetFinalizers(), ingressTunnelFinalizer))
 
-	err = c.client.Update(ctx, ing)
+	err = c.client.Patch(ctx, ing, patch)
 	if err != nil {
-		logger.Error(err, "Failed to update Ingress after removing finalizer")
+		logger.Error(err, "Failed to patch Ingress after removing finalizer")
 		return err
 	}
 

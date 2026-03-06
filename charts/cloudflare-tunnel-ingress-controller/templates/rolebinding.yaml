@@ -1,13 +1,14 @@
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ .Release.Name }}-cloudflared
+  name: {{ include "cloudflare-tunnel-ingress-controller.fullname" . }}-cloudflared
+  labels:
+    {{- include "cloudflare-tunnel-ingress-controller.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ .Release.Name }}-cloudflared
+  name: {{ include "cloudflare-tunnel-ingress-controller.fullname" . }}-cloudflared
 subjects:
   - kind: ServiceAccount
-    name: {{ .Release.Name }}
+    name: {{ include "cloudflare-tunnel-ingress-controller.serviceAccountName" . }}
     namespace: {{ .Release.Namespace | quote }}

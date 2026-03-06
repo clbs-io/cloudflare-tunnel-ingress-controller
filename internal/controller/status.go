@@ -10,7 +10,7 @@ import (
 
 func (c *IngressController) ensureStatus(ctx context.Context, logger logr.Logger, ing *networkingv1.Ingress) error {
 	host_add := make(map[string]struct{})
-	for _, ingressRecords := range c.tunnelConfig.Ingresses {
+	if ingressRecords, ok := c.tunnelConfig.Ingresses[ing.UID]; ok {
 		for _, ingress := range *ingressRecords {
 			if len(ingress.Hostname) > 0 {
 				host_add[ingress.Hostname] = struct{}{}

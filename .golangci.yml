@@ -1,5 +1,27 @@
 version: "2"
 linters:
+  enable:
+    - gosec
+    - gocritic
+    - gocyclo
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - nilerr
+    - prealloc
+    - unconvert
+    - unparam
+    - misspell
+  settings:
+    gocyclo:
+      min-complexity: 40
+    gosec:
+      excludes:
+        - G101 # false positives on variable names like "token"
+        - G703 # token file path comes from controlled env var set by Helm chart
   exclusions:
     generated: lax
     presets:

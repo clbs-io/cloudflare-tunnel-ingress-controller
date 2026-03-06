@@ -1,0 +1,16 @@
+Cloudflare Tunnel Ingress Controller has been installed.
+
+Release:    {{ .Release.Name }}
+Namespace:  {{ .Release.Namespace }}
+Tunnel:     {{ .Values.config.cloudflare.tunnelName }}
+
+The controller watches for Ingress resources with class "{{ .Values.ingressClass.name }}"
+and configures Cloudflare Tunnel to route traffic to the corresponding services.
+
+To check the controller status:
+
+  kubectl get pods -n {{ .Release.Namespace }} -l "{{ include "cloudflare-tunnel-ingress-controller.selectorLabels" . | replace "\n" "," }}"
+
+To verify the IngressClass:
+
+  kubectl get ingressclass {{ .Values.ingressClass.name }}

@@ -1,29 +1,29 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Release.Name }}-controller
+  name: {{ include "cloudflare-tunnel-ingress-controller.fullname" . }}
   labels:
-    app.kubernetes.io/name: {{ .Chart.Name }}
-    app.kubernetes.io/instance: {{ .Release.Name }}
-
+    {{- include "cloudflare-tunnel-ingress-controller.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  replicas: {{ .Values.replicaCount | default 1 }}
   selector:
     matchLabels:
-      app.kubernetes.io/name: {{ .Chart.Name }}
-      app.kubernetes.io/instance: {{ .Release.Name }}
+      {{- include "cloudflare-tunnel-ingress-controller.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: {{ .Chart.Name }}
-        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "cloudflare-tunnel-ingress-controller.selectorLabels" . | nindent 8 }}
       annotations:
         checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
     spec:
-      serviceAccountName: {{ .Release.Name }}
+      serviceAccountName: {{ include "cloudflare-tunnel-ingress-controller.serviceAccountName" . }}
       automountServiceAccountToken: true
       {{- with .Values.image.pullSecrets }}
       imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       terminationGracePeriodSeconds: 30
@@ -31,19 +31,57 @@ spec:
         - name: controller
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - --ingress-class-name={{ .Values.ingressClass.name }}
+            - --controller-class-name={{ .Values.ingressClass.controller }}
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: cloudflare-api-token
+              mountPath: /etc/cloudflare
+              readOnly: true
           envFrom:
             - configMapRef:
-                name: {{ .Release.Name }}
+                name: {{ include "cloudflare-tunnel-ingress-controller.fullname" . }}
           env:
-            # TODO: read api token from file instead of environment variable
-            - name: CLOUDFLARE_API_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.config.cloudflare.apiToken.existingSecret.name }}
-                  key: {{ .Values.config.cloudflare.apiToken.existingSecret.key }}
+            - name: CLOUDFLARE_API_TOKEN_FILE
+              value: /etc/cloudflare/token
             - name: NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+      volumes:
+        - name: cloudflare-api-token
+          secret:
+            secretName: {{ .Values.config.cloudflare.apiToken.existingSecret.name }}
+            items:
+              - key: {{ .Values.config.cloudflare.apiToken.existingSecret.key }}
+                path: token
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

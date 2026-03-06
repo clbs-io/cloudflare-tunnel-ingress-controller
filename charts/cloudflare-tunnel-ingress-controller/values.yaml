@@ -1,3 +1,8 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
 image:
   repository: registry.clbs.io/clbs-io/cloudflare-tunnel-ingress-controller/main
   tag:
@@ -14,7 +19,7 @@ resources:
 
 ingressClass:
   name: cloudflare-tunnel
-  controller: github.com/clbs-io/cloudflare-tunnel-ingress-controller
+  controller: clbs.io/cloudflare-tunnel-ingress-controller
   isDefaultClass: false
 
 config:
@@ -23,8 +28,8 @@ config:
     imagePullPolicy: IfNotPresent
 
   cloudflare:
-    accountID: xxx
-    tunnelName: xxx
+    accountID: ""
+    tunnelName: ""
 
     apiToken:
       existingSecret:
@@ -36,3 +41,21 @@ config:
     server: kubernetes.default.svc:443
     domain: domain.example.com
     cloudflareAccessAppName: "Kubernetes API Tunnel"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1001
+  fsGroup: 1001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

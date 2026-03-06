@@ -17,6 +17,8 @@ import (
 )
 
 func (c *IngressController) SetTunnelToken(token string) {
+	c.cloudflaredDeploymentConfig.tunnelTokenLck.Lock()
+	defer c.cloudflaredDeploymentConfig.tunnelTokenLck.Unlock()
 	c.cloudflaredDeploymentConfig.tunnelToken = token
 }
 
@@ -34,7 +36,9 @@ func (c *IngressController) ensureCloudflareTunnelExists(ctx context.Context, lo
 		return err
 	}
 
+	c.cloudflaredDeploymentConfig.tunnelTokenLck.Lock()
 	c.cloudflaredDeploymentConfig.tunnelToken = token
+	c.cloudflaredDeploymentConfig.tunnelTokenLck.Unlock()
 	return nil
 }
 
@@ -68,11 +72,17 @@ func (c *IngressController) harvestRules(ctx context.Context, logger logr.Logger
 					return err
 				}
 
+				portFound := false
 				for _, port := range service.Spec.Ports {
 					if port.Name == path.Backend.Service.Port.Name {
 						portNumber = port.Port
+						portFound = true
 						break
 					}
+				}
+				if !portFound {
+					logger.Error(nil, "Named port not found in Service, skipping path", "service", path.Backend.Service.Name, "portName", path.Backend.Service.Port.Name)
+					continue
 				}
 			}
 

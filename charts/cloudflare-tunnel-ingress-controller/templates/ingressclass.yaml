@@ -1,8 +1,10 @@
 apiVersion: networking.k8s.io/v1
 kind: IngressClass
 metadata:
+  name: {{ .Values.ingressClass.name }}
+  labels:
+    {{- include "cloudflare-tunnel-ingress-controller.labels" . | nindent 4 }}
   annotations:
     ingressclass.kubernetes.io/is-default-class: {{ .Values.ingressClass.isDefaultClass | quote }}
-  name: {{ .Values.ingressClass.name }}
 spec:
   controller: {{ .Values.ingressClass.controller }}
