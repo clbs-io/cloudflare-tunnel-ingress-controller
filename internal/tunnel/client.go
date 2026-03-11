@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/cloudflare/cloudflare-go/v6"
@@ -474,10 +476,7 @@ func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config 
 
 	// create DNS records (if needed)
 	for zoneID, hostnames := range zone_hostnames {
-		hostname_list := make([]string, 0, len(hostnames))
-		for k := range hostnames {
-			hostname_list = append(hostname_list, k)
-		}
+		hostname_list := slices.Collect(maps.Keys(hostnames))
 		if err := c.createDNSRecords(ctx, logger, zoneID, hostname_list); err != nil {
 			return err
 		}

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"slices"
 
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/go-logr/logr"
@@ -12,13 +13,7 @@ import (
 const ingressTunnelFinalizer = "finalizer.cloudflare-tunnel-ingress-controller.clbs.io/tunnel"
 
 func (c *IngressController) ensureFinalizers(ctx context.Context, logger logr.Logger, ing *networkingv1.Ingress) error {
-	containsFinalizer := false
-	for _, finalizer := range ing.GetFinalizers() {
-		if finalizer == ingressTunnelFinalizer {
-			containsFinalizer = true
-			break
-		}
-	}
+	containsFinalizer := slices.Contains(ing.GetFinalizers(), ingressTunnelFinalizer)
 
 	if !containsFinalizer {
 		logger.Info("Adding Finalizer for the Ingress resource")
@@ -54,10 +49,7 @@ func (c *IngressController) finalizeIngress(ctx context.Context, logger logr.Log
 }
 
 func removeFinalizer(finalizers []string, finalizer string) []string {
-	for i, f := range finalizers {
-		if f == finalizer {
-			return append(finalizers[:i], finalizers[i+1:]...)
-		}
-	}
-	return finalizers
+	return slices.DeleteFunc(finalizers, func(f string) bool {
+		return f == finalizer
+	})
 }

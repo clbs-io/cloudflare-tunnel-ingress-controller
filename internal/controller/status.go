@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"slices"
 
 	"github.com/go-logr/logr"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -18,16 +19,16 @@ func (c *IngressController) ensureStatus(ctx context.Context, logger logr.Logger
 		}
 	}
 
-	idx_remove := make([]int, 0, len(ing.Status.LoadBalancer.Ingress))
-	for i, lbIngress := range ing.Status.LoadBalancer.Ingress {
+	has_stale := false
+	for _, lbIngress := range ing.Status.LoadBalancer.Ingress {
 		if _, ok := host_add[lbIngress.Hostname]; ok {
 			delete(host_add, lbIngress.Hostname)
 		} else {
-			idx_remove = append(idx_remove, i)
+			has_stale = true
 		}
 	}
 
-	if len(host_add) == 0 && len(idx_remove) == 0 {
+	if len(host_add) == 0 && !has_stale {
 		return nil
 	}
 
@@ -35,9 +36,19 @@ func (c *IngressController) ensureStatus(ctx context.Context, logger logr.Logger
 
 	ing = ing.DeepCopy()
 
-	for i := len(idx_remove) - 1; i >= 0; i-- {
-		remove_idx := idx_remove[i]
-		ing.Status.LoadBalancer.Ingress = append(ing.Status.LoadBalancer.Ingress[:remove_idx], ing.Status.LoadBalancer.Ingress[remove_idx+1:]...)
+	if has_stale {
+		valid_hosts := make(map[string]struct{})
+		if ingressRecords, ok := c.tunnelConfig.Ingresses[ing.UID]; ok {
+			for _, ingress := range *ingressRecords {
+				if len(ingress.Hostname) > 0 {
+					valid_hosts[ingress.Hostname] = struct{}{}
+				}
+			}
+		}
+		ing.Status.LoadBalancer.Ingress = slices.DeleteFunc(ing.Status.LoadBalancer.Ingress, func(lbIngress networkingv1.IngressLoadBalancerIngress) bool {
+			_, ok := valid_hosts[lbIngress.Hostname]
+			return !ok
+		})
 	}
 
 	for hostname := range host_add {

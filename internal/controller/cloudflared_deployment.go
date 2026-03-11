@@ -84,11 +84,7 @@ func (c *IngressController) newCloudflaredDeployment() (*appsv1.Deployment, erro
 	tunnelToken := c.cloudflaredDeploymentConfig.tunnelToken
 	c.cloudflaredDeploymentConfig.tunnelTokenLck.RUnlock()
 
-	parts := strings.SplitN(c.cloudflaredDeploymentConfig.cloudflaredImage, ":", 2)
-	cloudflaredVersion := ""
-	if len(parts) == 2 {
-		cloudflaredVersion = parts[1]
-	}
+	_, cloudflaredVersion, _ := strings.Cut(c.cloudflaredDeploymentConfig.cloudflaredImage, ":")
 	if cloudflaredVersion == "" || cloudflaredVersion == "latest" {
 		return nil, errors.New("cloudflared image version is required, latest is not allowed")
 	}
