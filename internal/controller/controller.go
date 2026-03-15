@@ -70,7 +70,8 @@ func NewIngressController(logger logr.Logger, client client.Client, config *rest
 		tunnelConfigLck:         sync.Mutex{},
 		tunnelConfigInitialized: false,
 		tunnelConfig: &tunnel.Config{
-			Ingresses: make(map[types.UID]*tunnel.IngressRecords),
+			Ingresses:         make(map[types.UID]*tunnel.IngressRecords),
+			AccessAppRequests: make(map[string]string),
 			KubernetesApiTunnelConfig: tunnel.KubernetesApiTunnelConfig{
 				Enabled:                 kubernetes_api_tunnel_enabled,
 				Server:                  kubernetes_api_tunnel_server,

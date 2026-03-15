@@ -29,7 +29,12 @@ This controller watches for Ingress resources, automatically creates Cloudflare 
 Create an API token at [Cloudflare Dashboard / Profile / API Tokens](https://dash.cloudflare.com/profile/api-tokens) with the following permissions:
 
 - `Account : Cloudflare Tunnel : Edit`
+- `Zone : Zone : Read`
 - `Zone : DNS : Edit`
+
+If you enable the [Kubernetes API Tunnel](#kubernetes-api-tunnel) or use the [`access-app-name`](#cloudflare-access) annotation, also add:
+
+- `Account : Access: Apps and Policies : Edit`
 
 > [!IMPORTANT]
 > Scope the token to the specific account and zone(s) you need. Avoid using *All accounts* or *All zones* unless necessary.
@@ -201,6 +206,37 @@ annotations:
 ```
 
 Values: `http` (default), `https`, `tcp`
+
+#### Cloudflare Access
+
+Link a tunnel route to an existing Cloudflare Access application or auto-create one.
+
+**Option 1: Link to an existing Access application** — configure `cloudflared` to require Access authentication on this route:
+
+```yaml
+annotations:
+  cloudflare-tunnel-ingress-controller.clbs.io/access-required: "true"
+  cloudflare-tunnel-ingress-controller.clbs.io/access-team-name: "myteam"
+  cloudflare-tunnel-ingress-controller.clbs.io/access-aud-tag: "tag1,tag2"
+```
+
+| Annotation suffix | Description | Example |
+|-------------------|-------------|---------|
+| `access-required` | Require Cloudflare Access authentication | `true` |
+| `access-team-name` | Access team name | `myteam` |
+| `access-aud-tag` | Audience (AUD) tags, comma-separated | `tag1,tag2` |
+
+**Option 2: Auto-create an Access application** — the controller will create a self-hosted Cloudflare Access application for each hostname in the Ingress:
+
+```yaml
+annotations:
+  cloudflare-tunnel-ingress-controller.clbs.io/access-app-name: "My App"
+```
+
+> [!IMPORTANT]
+> Auto-created Access applications have **no policies** configured. You must add access policies manually in the Cloudflare dashboard. This option requires the `Account : Access: Apps and Policies : Edit` API token permission.
+
+Both options can be combined on the same Ingress.
 
 #### Origin Request Settings
 

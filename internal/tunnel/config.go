@@ -12,6 +12,9 @@ type Config struct {
 	// Ingresses is a list of Ingress resources to configure the Cloudflare Tunnel with.
 	// The key is the UID of the Ingress resource.
 	Ingresses map[types.UID]*IngressRecords
+	// AccessAppRequests tracks hostnames that should have a Cloudflare Access
+	// application auto-created. Key is hostname, value is the desired app name.
+	AccessAppRequests map[string]string
 	// Kubernetes API tunneling configuration
 	KubernetesApiTunnelConfig KubernetesApiTunnelConfig
 }

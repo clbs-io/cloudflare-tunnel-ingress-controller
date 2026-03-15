@@ -20,3 +20,11 @@ const AnnotationOriginNoTlsVerify = "cloudflare-tunnel-ingress-controller.clbs.i
 const AnnotationOriginDisableChunkedEncoding = "cloudflare-tunnel-ingress-controller.clbs.io/origin-disable-chunked-encoding"
 const AnnotationOriginProxyType = "cloudflare-tunnel-ingress-controller.clbs.io/origin-proxy-type"
 const AnnotationOriginHttp2Origin = "cloudflare-tunnel-ingress-controller.clbs.io/origin-http2origin"
+
+// Cloudflare Access annotations — link tunnel route to an existing Access application
+const AnnotationAccessRequired = "cloudflare-tunnel-ingress-controller.clbs.io/access-required"
+const AnnotationAccessTeamName = "cloudflare-tunnel-ingress-controller.clbs.io/access-team-name"
+const AnnotationAccessAudTag = "cloudflare-tunnel-ingress-controller.clbs.io/access-aud-tag"
+
+// Cloudflare Access annotation — auto-create a new Access application for this ingress hostname
+const AnnotationAccessAppName = "cloudflare-tunnel-ingress-controller.clbs.io/access-app-name"

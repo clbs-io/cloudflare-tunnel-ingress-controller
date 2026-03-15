@@ -278,7 +278,14 @@ func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logg
 	}
 
 	if config.KubernetesApiTunnelConfig.Enabled {
-		err := c.ensureKubeApiApplication(ctx, logger, config, zone_map)
+		err := c.ensureAccessApplication(ctx, logger, config.KubernetesApiTunnelConfig.Domain, config.KubernetesApiTunnelConfig.CloudflareAccessAppName, zone_map)
+		if err != nil {
+			return err
+		}
+	}
+
+	for hostname, app_name := range config.AccessAppRequests {
+		err := c.ensureAccessApplication(ctx, logger, hostname, app_name, zone_map)
 		if err != nil {
 			return err
 		}
@@ -596,42 +603,37 @@ func (c *Client) flush404IfLast(tunnelConfig *zero_trust.TunnelCloudflaredConfig
 	}
 }
 
-func (c *Client) ensureKubeApiApplication(ctx context.Context, logger logr.Logger, config *Config, zone_map map[string]string) error {
+func (c *Client) ensureAccessApplication(ctx context.Context, logger logr.Logger, domain, app_name string, zone_map map[string]string) error {
 	ch := c.cloudflareAPI.ZeroTrust.Access.Applications.ListAutoPaging(ctx, zero_trust.AccessApplicationListParams{
 		AccountID: cloudflare.F(c.accountID),
 	})
-	apps := make([]*zero_trust.AccessApplicationListResponse, 0)
 	for ch.Next() {
 		app := ch.Current()
-		apps = append(apps, &app)
+		if app.Domain == domain {
+			return nil
+		}
 	}
 	if err := ch.Err(); err != nil {
 		logger.Error(err, "Failed to list Access Applications")
 		return err
 	}
 
-	for _, app := range apps {
-		if app.Domain == config.KubernetesApiTunnelConfig.Domain {
-			return nil
-		}
-	}
-
 	var zone_id string
 	for zoneName, zoneID := range zone_map {
-		if strings.HasSuffix(config.KubernetesApiTunnelConfig.Domain, zoneName) {
+		if c.isInZone(domain, zoneName) {
 			zone_id = zoneID
 		}
 	}
 
 	if len(zone_id) == 0 {
-		return fmt.Errorf("failed to find zone ID for kube API tunnel: %s", config.KubernetesApiTunnelConfig.Domain)
+		return fmt.Errorf("failed to find zone ID for Access application: %s", domain)
 	}
 
 	_, err := c.cloudflareAPI.ZeroTrust.Access.Applications.New(ctx, zero_trust.AccessApplicationNewParams{
 		AccountID: cloudflare.F(c.accountID),
 		Body: zero_trust.AccessApplicationNewParamsBodySelfHostedApplication{
-			Name:   cloudflare.String(config.KubernetesApiTunnelConfig.CloudflareAccessAppName),
-			Domain: cloudflare.String(config.KubernetesApiTunnelConfig.Domain),
+			Name:   cloudflare.String(app_name),
+			Domain: cloudflare.String(domain),
 			Type:   cloudflare.F(zero_trust.ApplicationTypeSelfHosted),
 		},
 		ZoneID: cloudflare.F(zone_id),
