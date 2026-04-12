@@ -30,3 +30,11 @@ rules:
       - ingresses/status
     verbs:
       - update
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - create
+      - update
