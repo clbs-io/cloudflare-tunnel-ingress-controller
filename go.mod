@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/cloudflare/cloudflare-go/v6 v6.10.0
-	github.com/cloudflare/cloudflare-go/v7 v7.3.0
+	github.com/cloudflare/cloudflare-go/v7 v7.4.0
 	github.com/go-logr/logr v1.4.3
 	go.uber.org/zap v1.28.0
 	k8s.io/api v0.36.1
