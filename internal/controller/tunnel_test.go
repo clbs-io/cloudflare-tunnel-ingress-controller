@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
-	"github.com/cloudflare/cloudflare-go/v6/zero_trust"
+	"github.com/cloudflare/cloudflare-go/v7/zero_trust"
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/types"
 )
