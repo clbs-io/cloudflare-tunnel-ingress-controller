@@ -103,11 +103,9 @@ func (c *IngressController) newCloudflaredDeployment() (*appsv1.Deployment, erro
 	labels := labels.Merge(selectorLabels, additionalLabels)
 
 	deployment := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      appName,
-			Namespace: ns,
-			Labels:    labels,
-		},
+		Name:      appName,
+		Namespace: ns,
+		Labels:    labels,
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{
