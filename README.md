@@ -252,8 +252,10 @@ Both options can be combined on the same Ingress.
 | `origin-server-name` | TLS server name | `internal.example.com` |
 | `origin-no-tls-verify` | Skip TLS verification | `true` |
 | `origin-disable-chunked-encoding` | Disable chunked encoding | `true` |
-| `origin-proxy-type` | Proxy type | `socks5` |
+| `origin-proxy-type` | Proxy type; `socks` runs a SOCKS proxy for the route | `socks` |
 | `origin-http2origin` | Use HTTP/2 to origin | `true` |
+
+Timeouts are Go durations in whole seconds, at least `1s` (for example `30s` or `1m30s`); other values are ignored. Settings without an annotation keep the `cloudflared` defaults.
 
 #### Example: HTTPS Backend with Self-Signed Certificate
 

@@ -30,7 +30,7 @@ func (c *IngressController) ensureFinalizers(ctx context.Context, logger logr.Lo
 }
 
 func (c *IngressController) finalizeIngress(ctx context.Context, logger logr.Logger, tunnelConfig *tunnel.Config, ing *networkingv1.Ingress) error {
-	err := c.deleteTunnelConfigurationForIngress(ctx, logger, tunnelConfig, ing.UID)
+	err := c.deleteTunnelConfigurationForIngress(ctx, logger, tunnelConfig, ing)
 	if err != nil {
 		logger.Error(err, "Failed to delete tunnel configuration for Ingress")
 		return err

@@ -3,9 +3,11 @@ package controller
 import (
 	"testing"
 
+	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/cftest"
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/cloudflare/cloudflare-go/v7/zero_trust"
 	"github.com/go-logr/logr"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/types"
 )
 
@@ -75,7 +77,7 @@ func TestApplyOriginRequestAnnotations_OriginConnectTimeout(t *testing.T) {
 		AnnotationOriginConnectTimeout: "5s",
 	})
 
-	expected := int64(5_000_000_000)
+	expected := int64(5)
 	if origin.ConnectTimeout != expected {
 		t.Errorf("expected ConnectTimeout = %d, got %d", expected, origin.ConnectTimeout)
 	}
@@ -102,7 +104,7 @@ func TestApplyOriginRequestAnnotations_OriginTlsTimeout(t *testing.T) {
 		AnnotationOriginTlsTimeout: "10s",
 	})
 
-	expected := int64(10_000_000_000)
+	expected := int64(10)
 	if origin.TLSTimeout != expected {
 		t.Errorf("expected TLSTimeout = %d, got %d", expected, origin.TLSTimeout)
 	}
@@ -229,8 +231,8 @@ func TestApplyOriginRequestAnnotations_MultipleAnnotations(t *testing.T) {
 	if origin.Access.TeamName != "team1" {
 		t.Errorf("expected Access.TeamName = 'team1', got %q", origin.Access.TeamName)
 	}
-	if origin.ConnectTimeout != 3_000_000_000 {
-		t.Errorf("expected ConnectTimeout = 3000000000, got %d", origin.ConnectTimeout)
+	if origin.ConnectTimeout != 3 {
+		t.Errorf("expected ConnectTimeout = 3, got %d", origin.ConnectTimeout)
 	}
 	if !origin.NoTLSVerify {
 		t.Error("expected NoTLSVerify to be true")
@@ -248,37 +250,86 @@ func TestApplyOriginRequestAnnotations_EmptyAnnotations(t *testing.T) {
 	}
 }
 
-func TestDeleteTunnelConfigurationForIngress_CleansUpAccessAppRequests(t *testing.T) {
+func TestApplyOriginRequestAnnotations_TimeoutsInSeconds(t *testing.T) {
+	logger := logr.Discard()
+	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
+
+	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+		AnnotationOriginTcpKeepalive:     "30s",
+		AnnotationOriginKeepaliveTimeout: "1m30s",
+	})
+
+	if origin.TCPKeepAlive != 30 {
+		t.Errorf("expected TCPKeepAlive = 30, got %d", origin.TCPKeepAlive)
+	}
+	if origin.KeepAliveTimeout != 90 {
+		t.Errorf("expected KeepAliveTimeout = 90, got %d", origin.KeepAliveTimeout)
+	}
+}
+
+func TestApplyOriginRequestAnnotations_TimeoutRejectsPartialSeconds(t *testing.T) {
+	logger := logr.Discard()
+	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
+
+	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+		AnnotationOriginConnectTimeout: "1500ms",
+		AnnotationOriginTlsTimeout:     "0s",
+	})
+
+	if origin.ConnectTimeout != 0 || origin.TLSTimeout != 0 {
+		t.Errorf("expected timeouts that are not whole positive seconds to be ignored, got connect=%d tls=%d", origin.ConnectTimeout, origin.TLSTimeout)
+	}
+}
+
+func newTestIngressController(t *testing.T, fake *cftest.Server) *IngressController {
+	t.Helper()
+	tunnelClient := tunnel.NewClient(fake.Client(), cftest.AccountID, cftest.TunnelName, logr.Discard())
+	if err := tunnelClient.EnsureTunnelExists(t.Context(), logr.Discard()); err != nil {
+		t.Fatalf("EnsureTunnelExists: %v", err)
+	}
+	return &IngressController{tunnelClient: tunnelClient}
+}
+
+func newTestIngress(uid types.UID, hosts ...string) *networkingv1.Ingress {
+	ing := &networkingv1.Ingress{UID: uid, Name: "app", Namespace: "ns"}
+	for _, host := range hosts {
+		ing.Spec.Rules = append(ing.Spec.Rules, networkingv1.IngressRule{Host: host})
+	}
+	return ing
+}
+
+func newTestTunnelConfig(uid types.UID, hosts ...string) *tunnel.Config {
 	config := &tunnel.Config{
 		Ingresses:         make(map[types.UID]*tunnel.IngressRecords),
 		AccessAppRequests: make(map[string]string),
 	}
-
-	uid := types.UID("test-uid-123")
-	records := tunnel.IngressRecords{
-		&zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngress{
-			Hostname: "app.example.com",
-			Service:  "http://svc.default:80",
-		},
-		&zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngress{
-			Hostname: "api.example.com",
-			Service:  "http://api-svc.default:8080",
-		},
+	records := make(tunnel.IngressRecords, 0, len(hosts))
+	for _, host := range hosts {
+		records = append(records, &zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngress{
+			Hostname: host,
+			Path:     "/",
+			Service:  "http://svc.ns:80",
+		})
+		config.AccessAppRequests[host] = "My App"
 	}
 	config.Ingresses[uid] = &records
-	config.AccessAppRequests["app.example.com"] = "My App"
-	config.AccessAppRequests["api.example.com"] = "My API"
+	return config
+}
+
+func TestDeleteTunnelConfigurationForIngress_RemovesIngressAndAccessAppRequests(t *testing.T) {
+	fake := cftest.New(t)
+	c := newTestIngressController(t, fake)
+	uid := types.UID("test-uid-123")
+	config := newTestTunnelConfig(uid, "app.example.com", "api.example.com")
 	config.AccessAppRequests["other.example.com"] = "Other App"
 
-	// Simulate the cleanup logic from deleteTunnelConfigurationForIngress
-	ing := config.Ingresses[uid]
-	if ing != nil {
-		for _, record := range *ing {
-			delete(config.AccessAppRequests, record.Hostname)
-		}
+	if err := c.deleteTunnelConfigurationForIngress(t.Context(), logr.Discard(), config, newTestIngress(uid, "app.example.com", "api.example.com")); err != nil {
+		t.Fatalf("deleteTunnelConfigurationForIngress: %v", err)
 	}
-	delete(config.Ingresses, uid)
 
+	if _, ok := config.Ingresses[uid]; ok {
+		t.Error("expected ingress to be removed")
+	}
 	if _, ok := config.AccessAppRequests["app.example.com"]; ok {
 		t.Error("expected app.example.com to be removed from AccessAppRequests")
 	}
@@ -288,8 +339,25 @@ func TestDeleteTunnelConfigurationForIngress_CleansUpAccessAppRequests(t *testin
 	if _, ok := config.AccessAppRequests["other.example.com"]; !ok {
 		t.Error("expected other.example.com to remain in AccessAppRequests")
 	}
-	if _, ok := config.Ingresses[uid]; ok {
-		t.Error("expected ingress to be removed")
+}
+
+func TestDeleteTunnelConfigurationForIngress_KeepsStateWhenUpdateFails(t *testing.T) {
+	fake := cftest.New(t)
+	fake.SetIngress(`[{"hostname":"app.example.com","path":"/","service":"http://svc.ns:80"},{"service":"http_status:404"}]`)
+	fake.FailConfigPut = true
+	c := newTestIngressController(t, fake)
+	uid := types.UID("test-uid-123")
+	config := newTestTunnelConfig(uid, "app.example.com")
+
+	if err := c.deleteTunnelConfigurationForIngress(t.Context(), logr.Discard(), config, newTestIngress(uid, "app.example.com")); err == nil {
+		t.Fatal("expected an error when the tunnel configuration update fails")
+	}
+
+	if _, ok := config.Ingresses[uid]; !ok {
+		t.Error("expected ingress records to be kept for the retry")
+	}
+	if _, ok := config.AccessAppRequests["app.example.com"]; !ok {
+		t.Error("expected Access application request to be kept for the retry")
 	}
 }
 
