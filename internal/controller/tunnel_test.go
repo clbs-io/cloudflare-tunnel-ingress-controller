@@ -1,21 +1,16 @@
 package controller
 
 import (
+	"strings"
 	"testing"
 
-	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/cftest"
-	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/cloudflare/cloudflare-go/v7/zero_trust"
-	"github.com/go-logr/logr"
-	networkingv1 "k8s.io/api/networking/v1"
-	"k8s.io/apimachinery/pkg/types"
 )
 
 func TestApplyOriginRequestAnnotations_AccessRequired(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationAccessRequired: "true",
 	})
 
@@ -25,10 +20,9 @@ func TestApplyOriginRequestAnnotations_AccessRequired(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_AccessTeamName(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationAccessTeamName: "myteam",
 	})
 
@@ -38,10 +32,9 @@ func TestApplyOriginRequestAnnotations_AccessTeamName(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_AccessAudTag(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationAccessAudTag: "tag1,tag2,tag3",
 	})
 
@@ -57,10 +50,9 @@ func TestApplyOriginRequestAnnotations_AccessAudTag(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_AccessRequiredInvalid(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationAccessRequired: "notabool",
 	})
 
@@ -70,10 +62,9 @@ func TestApplyOriginRequestAnnotations_AccessRequiredInvalid(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_OriginConnectTimeout(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationOriginConnectTimeout: "5s",
 	})
 
@@ -84,10 +75,9 @@ func TestApplyOriginRequestAnnotations_OriginConnectTimeout(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_OriginConnectTimeoutInvalid(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationOriginConnectTimeout: "invalid",
 	})
 
@@ -97,10 +87,9 @@ func TestApplyOriginRequestAnnotations_OriginConnectTimeoutInvalid(t *testing.T)
 }
 
 func TestApplyOriginRequestAnnotations_OriginTlsTimeout(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationOriginTlsTimeout: "10s",
 	})
 
@@ -111,10 +100,9 @@ func TestApplyOriginRequestAnnotations_OriginTlsTimeout(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_OriginNoTlsVerify(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationOriginNoTlsVerify: "true",
 	})
 
@@ -124,10 +112,9 @@ func TestApplyOriginRequestAnnotations_OriginNoTlsVerify(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_OriginKeepaliveConnections(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationOriginKeepaliveConnections: "10",
 	})
 
@@ -137,10 +124,9 @@ func TestApplyOriginRequestAnnotations_OriginKeepaliveConnections(t *testing.T) 
 }
 
 func TestApplyOriginRequestAnnotations_OriginHttpHostHeader(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationOriginHttpHostHeader: "example.com",
 	})
 
@@ -150,10 +136,9 @@ func TestApplyOriginRequestAnnotations_OriginHttpHostHeader(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_OriginServerName(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationOriginServerName: "origin.example.com",
 	})
 
@@ -163,10 +148,9 @@ func TestApplyOriginRequestAnnotations_OriginServerName(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_ProxyType(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationOriginProxyType: "socks",
 	})
 
@@ -176,10 +160,9 @@ func TestApplyOriginRequestAnnotations_ProxyType(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_Http2Origin(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationOriginHttp2Origin: "true",
 	})
 
@@ -189,10 +172,9 @@ func TestApplyOriginRequestAnnotations_Http2Origin(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_DisableChunkedEncoding(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationOriginDisableChunkedEncoding: "true",
 	})
 
@@ -202,10 +184,9 @@ func TestApplyOriginRequestAnnotations_DisableChunkedEncoding(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_NoHappyEyeballs(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationOriginNoHappyEyeballs: "true",
 	})
 
@@ -215,10 +196,9 @@ func TestApplyOriginRequestAnnotations_NoHappyEyeballs(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_MultipleAnnotations(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationAccessRequired:       "true",
 		AnnotationAccessTeamName:       "team1",
 		AnnotationOriginConnectTimeout: "3s",
@@ -240,10 +220,9 @@ func TestApplyOriginRequestAnnotations_MultipleAnnotations(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_EmptyAnnotations(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{})
+	applyOriginRequestAnnotations(&origin, map[string]string{})
 
 	if origin.Access.Required || origin.Access.TeamName != "" || origin.ConnectTimeout != 0 {
 		t.Error("expected no fields to be set with empty annotations")
@@ -251,10 +230,9 @@ func TestApplyOriginRequestAnnotations_EmptyAnnotations(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_TimeoutsInSeconds(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationOriginTcpKeepalive:     "30s",
 		AnnotationOriginKeepaliveTimeout: "1m30s",
 	})
@@ -268,10 +246,9 @@ func TestApplyOriginRequestAnnotations_TimeoutsInSeconds(t *testing.T) {
 }
 
 func TestApplyOriginRequestAnnotations_TimeoutRejectsPartialSeconds(t *testing.T) {
-	logger := logr.Discard()
 	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-	applyOriginRequestAnnotations(logger, &origin, map[string]string{
+	applyOriginRequestAnnotations(&origin, map[string]string{
 		AnnotationOriginConnectTimeout: "1500ms",
 		AnnotationOriginTlsTimeout:     "0s",
 	})
@@ -281,147 +258,31 @@ func TestApplyOriginRequestAnnotations_TimeoutRejectsPartialSeconds(t *testing.T
 	}
 }
 
-func newTestIngressController(t *testing.T, fake *cftest.Server) *IngressController {
-	t.Helper()
-	tunnelClient := tunnel.NewClient(fake.Client(), cftest.AccountID, cftest.TunnelName, logr.Discard())
-	if err := tunnelClient.EnsureTunnelExists(t.Context(), logr.Discard()); err != nil {
-		t.Fatalf("EnsureTunnelExists: %v", err)
-	}
-	return &IngressController{tunnelClient: tunnelClient}
-}
+func TestApplyOriginRequestAnnotations_ReportsInvalidValues(t *testing.T) {
+	origin := zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest{}
 
-func newTestIngress(uid types.UID, hosts ...string) *networkingv1.Ingress {
-	ing := &networkingv1.Ingress{UID: uid, Name: "app", Namespace: "ns"}
-	for _, host := range hosts {
-		ing.Spec.Rules = append(ing.Spec.Rules, networkingv1.IngressRule{Host: host})
-	}
-	return ing
-}
+	warnings := applyOriginRequestAnnotations(&origin, map[string]string{
+		AnnotationOriginNoTlsVerify:    "maybe",
+		AnnotationOriginConnectTimeout: "1500ms",
+	})
 
-func newTestTunnelConfig(uid types.UID, hosts ...string) *tunnel.Config {
-	config := &tunnel.Config{
-		Ingresses:         make(map[types.UID]*tunnel.IngressRecords),
-		AccessAppRequests: make(map[string]string),
+	if len(warnings) != 2 {
+		t.Fatalf("expected 2 warnings, got %+v", warnings)
 	}
-	records := make(tunnel.IngressRecords, 0, len(hosts))
-	for _, host := range hosts {
-		records = append(records, &zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngress{
-			Hostname: host,
-			Path:     "/",
-			Service:  "http://svc.ns:80",
-		})
-		config.AccessAppRequests[host] = "My App"
-	}
-	config.Ingresses[uid] = &records
-	return config
-}
-
-func TestDeleteTunnelConfigurationForIngress_RemovesIngressAndAccessAppRequests(t *testing.T) {
-	fake := cftest.New(t)
-	c := newTestIngressController(t, fake)
-	uid := types.UID("test-uid-123")
-	config := newTestTunnelConfig(uid, "app.example.com", "api.example.com")
-	config.AccessAppRequests["other.example.com"] = "Other App"
-
-	if err := c.deleteTunnelConfigurationForIngress(t.Context(), logr.Discard(), config, newTestIngress(uid, "app.example.com", "api.example.com")); err != nil {
-		t.Fatalf("deleteTunnelConfigurationForIngress: %v", err)
-	}
-
-	if _, ok := config.Ingresses[uid]; ok {
-		t.Error("expected ingress to be removed")
-	}
-	if _, ok := config.AccessAppRequests["app.example.com"]; ok {
-		t.Error("expected app.example.com to be removed from AccessAppRequests")
-	}
-	if _, ok := config.AccessAppRequests["api.example.com"]; ok {
-		t.Error("expected api.example.com to be removed from AccessAppRequests")
-	}
-	if _, ok := config.AccessAppRequests["other.example.com"]; !ok {
-		t.Error("expected other.example.com to remain in AccessAppRequests")
-	}
-}
-
-func TestDeleteTunnelConfigurationForIngress_KeepsStateWhenUpdateFails(t *testing.T) {
-	fake := cftest.New(t)
-	fake.SetIngress(`[{"hostname":"app.example.com","path":"/","service":"http://svc.ns:80"},{"service":"http_status:404"}]`)
-	fake.FailConfigPut = true
-	c := newTestIngressController(t, fake)
-	uid := types.UID("test-uid-123")
-	config := newTestTunnelConfig(uid, "app.example.com")
-
-	if err := c.deleteTunnelConfigurationForIngress(t.Context(), logr.Discard(), config, newTestIngress(uid, "app.example.com")); err == nil {
-		t.Fatal("expected an error when the tunnel configuration update fails")
-	}
-
-	if _, ok := config.Ingresses[uid]; !ok {
-		t.Error("expected ingress records to be kept for the retry")
-	}
-	if _, ok := config.AccessAppRequests["app.example.com"]; !ok {
-		t.Error("expected Access application request to be kept for the retry")
-	}
-}
-
-func TestAccessAppRequests_PopulatedFromAnnotation(t *testing.T) {
-	config := &tunnel.Config{
-		Ingresses:         make(map[types.UID]*tunnel.IngressRecords),
-		AccessAppRequests: make(map[string]string),
-	}
-
-	// Simulate the logic from harvestRules that populates AccessAppRequests
-	annotations := map[string]string{
-		AnnotationAccessAppName: "My App",
-	}
-	hosts := []string{"app.example.com", "api.example.com"}
-
-	if app_name, ok := annotations[AnnotationAccessAppName]; ok && app_name != "" {
-		for _, host := range hosts {
-			config.AccessAppRequests[host] = app_name
+	for _, w := range warnings {
+		if w.Reason != ReasonInvalidAnnotation {
+			t.Errorf("expected reason %s, got %s", ReasonInvalidAnnotation, w.Reason)
 		}
 	}
-
-	if len(config.AccessAppRequests) != 2 {
-		t.Fatalf("expected 2 AccessAppRequests, got %d", len(config.AccessAppRequests))
-	}
-	if config.AccessAppRequests["app.example.com"] != "My App" {
-		t.Errorf("expected 'My App' for app.example.com, got %q", config.AccessAppRequests["app.example.com"])
-	}
-	if config.AccessAppRequests["api.example.com"] != "My App" {
-		t.Errorf("expected 'My App' for api.example.com, got %q", config.AccessAppRequests["api.example.com"])
+	if !strings.Contains(warnings[0].Message, AnnotationOriginConnectTimeout) || !strings.Contains(warnings[1].Message, AnnotationOriginNoTlsVerify) {
+		t.Errorf("expected warnings ordered by annotation name, got %+v", warnings)
 	}
 }
 
-func TestAccessAppRequests_NotPopulatedWithoutAnnotation(t *testing.T) {
-	config := &tunnel.Config{
-		Ingresses:         make(map[types.UID]*tunnel.IngressRecords),
-		AccessAppRequests: make(map[string]string),
-	}
+func TestKubernetesApiTunnelConfig_GetService(t *testing.T) {
+	config := KubernetesApiTunnelConfig{Server: "kubernetes.default.svc:443"}
 
-	annotations := map[string]string{}
-
-	if app_name, ok := annotations[AnnotationAccessAppName]; ok && app_name != "" {
-		config.AccessAppRequests["should-not-exist"] = app_name
-	}
-
-	if len(config.AccessAppRequests) != 0 {
-		t.Error("expected no AccessAppRequests without annotation")
-	}
-}
-
-func TestAccessAppRequests_NotPopulatedWithEmptyAnnotation(t *testing.T) {
-	config := &tunnel.Config{
-		Ingresses:         make(map[types.UID]*tunnel.IngressRecords),
-		AccessAppRequests: make(map[string]string),
-	}
-
-	annotations := map[string]string{
-		AnnotationAccessAppName: "",
-	}
-
-	if app_name, ok := annotations[AnnotationAccessAppName]; ok && app_name != "" {
-		config.AccessAppRequests["should-not-exist"] = app_name
-	}
-
-	if len(config.AccessAppRequests) != 0 {
-		t.Error("expected no AccessAppRequests with empty annotation value")
+	if got := config.GetService(); got != "tcp://kubernetes.default.svc:443" {
+		t.Errorf("expected tcp://kubernetes.default.svc:443, got %q", got)
 	}
 }

@@ -2,37 +2,42 @@ package controller
 
 import (
 	"context"
+	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"sync"
+	"time"
 
 	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	kclientset "k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/utils/env"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+// tunnelReconcileKey is the single request every watched event maps to.
+const tunnelReconcileKey = "tunnel"
+
 type IngressController struct {
 	logger logr.Logger
 
 	client       client.Client
-	clientset    kclientset.Interface
+	recorder     events.EventRecorder
 	tunnelClient *tunnel.Client
 
 	ingressClassName    string
 	controllerClassName string
+	resyncPeriod        time.Duration
+	kubernetesApiTunnel KubernetesApiTunnelConfig
 
 	cloudflaredDeploymentConfig cloudflaredDeploymentConfig
-
-	tunnelConfigLck         sync.Mutex
-	tunnelConfigInitialized bool
-	tunnelConfig            *tunnel.Config
 }
 
 type CloudflaredConfig struct {
@@ -45,133 +50,168 @@ var (
 	_namespace     string
 )
 
-func NewIngressController(logger logr.Logger, client client.Client, config *rest.Config, tunnelClient *tunnel.Client, ingressClassName, controllerClassName string, cloudflaredConfig CloudflaredConfig) (*IngressController, error) {
+func NewIngressController(logger logr.Logger, client client.Client, recorder events.EventRecorder, options IngressControllerOptions) *IngressController {
 	kubernetes_api_tunnel_enabled, _ := env.GetBool("KUBERNETES_API_TUNNEL_ENABLED", false)
-	kubernetes_api_tunnel_server := os.Getenv("KUBERNETES_API_TUNNEL_SERVER")
-	kubernetes_api_tunnel_domain := os.Getenv("KUBERNETES_API_TUNNEL_DOMAIN")
-	kubernetes_api_tunnel_cf_access_app_name := os.Getenv("KUBERNETES_API_TUNNEL_CF_ACCESS_APP_NAME")
-
-	clientset, err := kclientset.NewForConfig(config)
-	if err != nil {
-		return nil, err
-	}
 
 	return &IngressController{
 		logger:              logger,
 		client:              client,
-		clientset:           clientset,
-		tunnelClient:        tunnelClient,
-		ingressClassName:    ingressClassName,
-		controllerClassName: controllerClassName,
+		recorder:            recorder,
+		tunnelClient:        options.TunnelClient,
+		ingressClassName:    options.IngressClassName,
+		controllerClassName: options.ControllerClassName,
+		resyncPeriod:        options.ResyncPeriod,
+		kubernetesApiTunnel: KubernetesApiTunnelConfig{
+			Enabled:                 kubernetes_api_tunnel_enabled,
+			Server:                  os.Getenv("KUBERNETES_API_TUNNEL_SERVER"),
+			Domain:                  os.Getenv("KUBERNETES_API_TUNNEL_DOMAIN"),
+			CloudflareAccessAppName: os.Getenv("KUBERNETES_API_TUNNEL_CF_ACCESS_APP_NAME"),
+		},
 		cloudflaredDeploymentConfig: cloudflaredDeploymentConfig{
-			cloudflaredImage:           cloudflaredConfig.CloudflaredImage,
-			cloudflaredImagePullPolicy: cloudflaredConfig.CloudflaredImagePullPolicy,
+			cloudflaredImage:           options.CloudflaredConfig.CloudflaredImage,
+			cloudflaredImagePullPolicy: options.CloudflaredConfig.CloudflaredImagePullPolicy,
 		},
-		tunnelConfigLck:         sync.Mutex{},
-		tunnelConfigInitialized: false,
-		tunnelConfig: &tunnel.Config{
-			Ingresses:         make(map[types.UID]*tunnel.IngressRecords),
-			AccessAppRequests: make(map[string]string),
-			KubernetesApiTunnelConfig: tunnel.KubernetesApiTunnelConfig{
-				Enabled:                 kubernetes_api_tunnel_enabled,
-				Server:                  kubernetes_api_tunnel_server,
-				Domain:                  kubernetes_api_tunnel_domain,
-				CloudflareAccessAppName: kubernetes_api_tunnel_cf_access_app_name,
-			},
-		},
-	}, nil
+	}
 }
 
-func (c *IngressController) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	reqLogger := log.FromContext(ctx)
+// Reconcile renders the whole tunnel from all Ingresses and synchronizes it.
+// Every event maps to the same request, so the request itself is unused.
+func (c *IngressController) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
+	logger := log.FromContext(ctx)
 
-	var err error
-
-	err = c.ensureCloudflareTunnelExists(ctx, reqLogger)
-	if err != nil {
-		reqLogger.Error(err, "failed to ensure cloudflare tunnel exists")
+	if err := c.ensureCloudflareTunnelExists(ctx, logger); err != nil {
+		return ctrl.Result{}, err
+	}
+	if err := c.EnsureCloudflaredDeploymentExists(ctx, logger); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	err = c.EnsureCloudflaredDeploymentExists(ctx, reqLogger)
+	ingresses := &networkingv1.IngressList{}
+	if err := c.client.List(ctx, ingresses); err != nil {
+		logger.Error(err, "Failed to list Ingress resources")
+		return ctrl.Result{}, err
+	}
+	active, releasing, err := c.classifyIngresses(ctx, ingresses.Items)
 	if err != nil {
-		reqLogger.Error(err, "failed to ensure cloudflared deployment exists")
+		logger.Error(err, "Failed to classify Ingress resources")
 		return ctrl.Result{}, err
 	}
 
-	ingress := &networkingv1.Ingress{}
-	err = c.client.Get(ctx, client.ObjectKey{
-		Namespace: req.Namespace,
-		Name:      req.Name,
-	}, ingress)
-	if apierrors.IsNotFound(err) {
-		reqLogger.Info("Ingress resource not found")
-		return ctrl.Result{}, nil
-	}
-	if err != nil {
-		reqLogger.Error(err, "failed to get ingress resource")
-		return ctrl.Result{}, err
-	}
-
-	if ingress.Spec.IngressClassName == nil || *ingress.Spec.IngressClassName != c.ingressClassName {
-		// This Ingress has no class set or a different class — skip it
-		return ctrl.Result{}, nil
-	}
-
-	c.tunnelConfigLck.Lock()
-	defer c.tunnelConfigLck.Unlock()
-
-	// Load all ingress resources on the first reconcile
-	if !c.tunnelConfigInitialized {
-		ingress_list := &networkingv1.IngressList{}
-		err = c.client.List(ctx, ingress_list)
-		if err != nil {
-			reqLogger.Error(err, "failed to list ingress resources")
+	for i := range active {
+		if err := c.ensureFinalizers(ctx, logger, &active[i]); err != nil {
 			return ctrl.Result{}, err
 		}
-		for _, ing := range ingress_list.Items {
-			if ing.Spec.IngressClassName == nil || *ing.Spec.IngressClassName != c.ingressClassName {
-				continue
-			}
-			if ing.GetDeletionTimestamp() != nil {
-				continue
-			}
-			err = c.harvestRules(ctx, reqLogger, c.tunnelConfig, &ing)
-			if err != nil {
-				reqLogger.Error(err, "failed to harvest rules")
-				return ctrl.Result{}, err
-			}
+	}
+
+	rendered := render(active, c.kubernetesApiTunnel, c.servicePortLookup(ctx))
+	config := &tunnel.Config{Rules: rendered.Rules, AccessAppRequests: rendered.AccessAppRequests}
+
+	synced, err := c.tunnelClient.Sync(ctx, logger, config)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	for i := range releasing {
+		if err := c.releaseIngress(ctx, logger, &releasing[i]); err != nil {
+			return ctrl.Result{}, err
 		}
-		c.tunnelConfigInitialized = true
 	}
 
-	if ingress.GetDeletionTimestamp() != nil {
-		err = c.finalizeIngress(ctx, reqLogger, c.tunnelConfig, ingress)
+	for i := range active {
+		ingress := &active[i]
+		result := rendered.Results[ingress.UID]
+		hostnames := make([]string, 0, len(result.Hostnames))
+		for _, hostname := range result.Hostnames {
+			if slices.Contains(synced.DNSConflicts, hostname) {
+				result.warn(ReasonDNSConflict, "DNS name %q is held by a record that does not point to the tunnel", hostname)
+				continue
+			}
+			hostnames = append(hostnames, hostname)
+		}
+		if err := c.ensureStatus(ctx, logger, ingress, hostnames); err != nil {
+			return ctrl.Result{}, err
+		}
+		for _, w := range result.Warnings {
+			c.recorder.Eventf(ingress, nil, corev1.EventTypeWarning, w.Reason, "Reconcile", "%s", w.Message)
+		}
+	}
+
+	// Access applications apply to a hostname whatever serves it, so none is
+	// created for a name held by a record that does not point to the tunnel
+	maps.DeleteFunc(config.AccessAppRequests, func(hostname, _ string) bool {
+		return slices.Contains(synced.DNSConflicts, hostname)
+	})
+	if err := c.tunnelClient.EnsureAccessApplications(ctx, logger, config); err != nil {
 		return ctrl.Result{}, err
 	}
 
-	err = c.ensureFinalizers(ctx, reqLogger, ingress)
-	if err != nil {
-		reqLogger.Error(err, "failed to ensure finalizers on ingress resource")
-		return ctrl.Result{}, err
-	}
-
-	err = c.ensureCloudflareTunnelConfiguration(ctx, reqLogger, c.tunnelConfig, ingress)
-	if err != nil {
-		reqLogger.Error(err, "failed to ensure tunnel configuration")
-		return ctrl.Result{}, err
-	}
-
-	err = c.ensureStatus(ctx, reqLogger, ingress)
-	if err != nil {
-		reqLogger.Error(err, "failed to ensure status")
-		return ctrl.Result{}, err
-	}
-
-	return ctrl.Result{}, nil
+	return ctrl.Result{RequeueAfter: c.resyncPeriod}, nil
 }
 
-func namespace() string {
+// classifyIngresses splits Ingresses into active ones of our class and
+// releasing ones that carry our finalizer but are being deleted, or have moved
+// to a class no controller with our controller class serves. Ingresses of
+// another installation of this controller keep their finalizer.
+func (c *IngressController) classifyIngresses(ctx context.Context, ingresses []networkingv1.Ingress) ([]networkingv1.Ingress, []networkingv1.Ingress, error) {
+	var active, releasing []networkingv1.Ingress
+	for _, ingress := range ingresses {
+		switch {
+		case c.hasOurClass(&ingress) && ingress.DeletionTimestamp == nil:
+			active = append(active, ingress)
+		case !slices.Contains(ingress.Finalizers, ingressTunnelFinalizer):
+			// not ours, or already released
+		case c.hasOurClass(&ingress):
+			releasing = append(releasing, ingress)
+		default:
+			served, err := c.classServedByUs(ctx, ingress.Spec.IngressClassName)
+			if err != nil {
+				return nil, nil, err
+			}
+			if !served {
+				releasing = append(releasing, ingress)
+			}
+		}
+	}
+	return active, releasing, nil
+}
+
+func (c *IngressController) hasOurClass(ingress *networkingv1.Ingress) bool {
+	return ingress.Spec.IngressClassName != nil && *ingress.Spec.IngressClassName == c.ingressClassName
+}
+
+// classServedByUs reports whether the IngressClass exists and names our
+// controller class.
+func (c *IngressController) classServedByUs(ctx context.Context, className *string) (bool, error) {
+	if className == nil {
+		return false, nil
+	}
+	class := &networkingv1.IngressClass{}
+	if err := c.client.Get(ctx, types.NamespacedName{Name: *className}, class); err != nil {
+		if apierrors.IsNotFound(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("get IngressClass %q: %w", *className, err)
+	}
+	return class.Spec.Controller == c.controllerClassName, nil
+}
+
+func (c *IngressController) servicePortLookup(ctx context.Context) portLookup {
+	return func(namespace, name, port string) (int32, error) {
+		service := &corev1.Service{}
+		if err := c.client.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, service); err != nil {
+			return 0, err
+		}
+		for _, p := range service.Spec.Ports {
+			if p.Name == port {
+				return p.Port, nil
+			}
+		}
+		return 0, fmt.Errorf("service %s/%s has no port named %q", namespace, name, port)
+	}
+}
+
+// Namespace is the namespace of the controller and the cloudflared Deployment.
+func Namespace() string {
 	_namespaceOnce.Do(func() {
 		_namespace = "default"
 		if ns := os.Getenv("NAMESPACE"); len(ns) > 0 {

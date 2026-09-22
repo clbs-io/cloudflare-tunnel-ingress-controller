@@ -29,7 +29,7 @@ func (c *IngressController) EnsureCloudflaredDeploymentExists(ctx context.Contex
 	logger.Info("Ensuring Cloudflared Deployment exists")
 
 	foundDeployment := &appsv1.Deployment{}
-	ns := namespace()
+	ns := Namespace()
 
 	err := c.client.Get(ctx, types.NamespacedName{Name: appName, Namespace: ns}, foundDeployment)
 	if err != nil && apierrors.IsNotFound(err) {
@@ -78,7 +78,7 @@ func (c *IngressController) createAndDeployCloudflaredDeployment(ctx context.Con
 
 func (c *IngressController) newCloudflaredDeployment() (*appsv1.Deployment, error) {
 	replicas := int32(1)
-	ns := namespace()
+	ns := Namespace()
 
 	c.cloudflaredDeploymentConfig.tunnelTokenLck.RLock()
 	tunnelToken := c.cloudflaredDeploymentConfig.tunnelToken
@@ -144,7 +144,7 @@ func (c *IngressController) newCloudflaredDeployment() (*appsv1.Deployment, erro
 }
 
 func (c *IngressController) updateCloudflaredDeploymentIfNeeded(ctx context.Context, logger logr.Logger, foundDeployment *appsv1.Deployment) error {
-	ns := namespace()
+	ns := Namespace()
 
 	desired, err := c.newCloudflaredDeployment()
 	if err != nil {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"slices"
 
-	"github.com/clbs-io/cloudflare-tunnel-ingress-controller/internal/tunnel"
 	"github.com/go-logr/logr"
 	networkingv1 "k8s.io/api/networking/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -13,43 +12,31 @@ import (
 const ingressTunnelFinalizer = "finalizer.cloudflare-tunnel-ingress-controller.clbs.io/tunnel"
 
 func (c *IngressController) ensureFinalizers(ctx context.Context, logger logr.Logger, ing *networkingv1.Ingress) error {
-	containsFinalizer := slices.Contains(ing.GetFinalizers(), ingressTunnelFinalizer)
+	if slices.Contains(ing.GetFinalizers(), ingressTunnelFinalizer) {
+		return nil
+	}
 
-	if !containsFinalizer {
-		logger.Info("Adding Finalizer for the Ingress resource")
-		patch := client.MergeFrom(ing.DeepCopy())
-		ing.SetFinalizers(append(ing.GetFinalizers(), ingressTunnelFinalizer))
-
-		err := c.client.Patch(ctx, ing, patch)
-		if err != nil {
-			logger.Error(err, "Failed to patch Ingress resource with a finalizer", "finalizer", ingressTunnelFinalizer)
-			return err
-		}
+	logger.Info("Adding finalizer to Ingress", "namespace", ing.Namespace, "name", ing.Name)
+	patch := client.MergeFromWithOptions(ing.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	ing.SetFinalizers(append(ing.GetFinalizers(), ingressTunnelFinalizer))
+	if err := c.client.Patch(ctx, ing, patch); err != nil {
+		logger.Error(err, "Failed to add finalizer to Ingress", "namespace", ing.Namespace, "name", ing.Name)
+		return err
 	}
 	return nil
 }
 
-func (c *IngressController) finalizeIngress(ctx context.Context, logger logr.Logger, tunnelConfig *tunnel.Config, ing *networkingv1.Ingress) error {
-	err := c.deleteTunnelConfigurationForIngress(ctx, logger, tunnelConfig, ing)
-	if err != nil {
-		logger.Error(err, "Failed to delete tunnel configuration for Ingress")
+// releaseIngress removes our finalizer once the tunnel no longer serves the
+// Ingress. An Ingress that is already gone counts as released.
+func (c *IngressController) releaseIngress(ctx context.Context, logger logr.Logger, ing *networkingv1.Ingress) error {
+	logger.Info("Removing finalizer from Ingress", "namespace", ing.Namespace, "name", ing.Name)
+	patch := client.MergeFromWithOptions(ing.DeepCopy(), client.MergeFromWithOptimisticLock{})
+	ing.SetFinalizers(slices.DeleteFunc(ing.GetFinalizers(), func(f string) bool {
+		return f == ingressTunnelFinalizer
+	}))
+	if err := client.IgnoreNotFound(c.client.Patch(ctx, ing, patch)); err != nil {
+		logger.Error(err, "Failed to remove finalizer from Ingress", "namespace", ing.Namespace, "name", ing.Name)
 		return err
 	}
-
-	patch := client.MergeFrom(ing.DeepCopy())
-	ing.SetFinalizers(removeFinalizer(ing.GetFinalizers(), ingressTunnelFinalizer))
-
-	err = c.client.Patch(ctx, ing, patch)
-	if err != nil {
-		logger.Error(err, "Failed to patch Ingress after removing finalizer")
-		return err
-	}
-
 	return nil
-}
-
-func removeFinalizer(finalizers []string, finalizer string) []string {
-	return slices.DeleteFunc(finalizers, func(f string) bool {
-		return f == finalizer
-	})
 }

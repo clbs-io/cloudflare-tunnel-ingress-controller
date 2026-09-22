@@ -7,12 +7,14 @@ import (
 	"encoding/json"
 	"errors"
 	"maps"
+	"net/http"
 	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/cloudflare/cloudflare-go/v7"
 	"github.com/cloudflare/cloudflare-go/v7/dns"
+	"github.com/cloudflare/cloudflare-go/v7/shared"
 	"github.com/cloudflare/cloudflare-go/v7/zero_trust"
 	"github.com/cloudflare/cloudflare-go/v7/zones"
 	"github.com/go-logr/logr"
@@ -30,11 +32,6 @@ type Client struct {
 	tunnelID    string
 	tunnelToken string
 }
-
-var (
-	dummy          = struct{}{}
-	socksProxyType = "socks"
-)
 
 func NewClient(cloudflareAPI *cloudflare.Client, accountID, tunnelName string, logger logr.Logger) *Client {
 	return &Client{
@@ -132,53 +129,67 @@ func (c *Client) createTunnel(ctx context.Context, logger logr.Logger) error {
 	return nil
 }
 
-// DeleteFromTunnelConfiguration synchronizes the tunnel after an Ingress was
-// removed from config, and deletes the tunnel DNS records of removed_hostnames
-// that no remaining rule uses.
-func (c *Client) DeleteFromTunnelConfiguration(ctx context.Context, logger logr.Logger, config *Config, removed_hostnames []string) error {
-	logger.Info("Deleting from Cloudflare Tunnel configuration")
-
-	zone_map, err := c.getDnsZoneMap(ctx, logger)
-	if err != nil {
-		return err
-	}
-
-	err = c.synchronizeTunnelConfiguration(ctx, logger, config)
-	if err != nil {
-		return err
-	}
-
-	return c.synchronizeDns(ctx, logger, config, zone_map, removed_hostnames)
+// SyncResult reports conditions found while synchronizing that are not errors.
+type SyncResult struct {
+	// DNSConflicts lists hostnames whose DNS name is held by a record that
+	// does not point to the tunnel.
+	DNSConflicts []string
 }
 
-func (c *Client) EnsureTunnelConfiguration(ctx context.Context, logger logr.Logger, config *Config) error {
-	logger.Info("Ensuring Cloudflare Tunnel configuration")
-
+// Sync makes the tunnel configuration and the tunnel DNS records match config.
+func (c *Client) Sync(ctx context.Context, logger logr.Logger, config *Config) (SyncResult, error) {
 	zone_map, err := c.getDnsZoneMap(ctx, logger)
 	if err != nil {
-		return err
+		return SyncResult{}, err
 	}
 
-	err = c.synchronizeTunnelConfiguration(ctx, logger, config)
+	if err := c.synchronizeTunnelConfiguration(ctx, logger, config); err != nil {
+		return SyncResult{}, err
+	}
+
+	conflicts, err := c.synchronizeDns(ctx, logger, config, zone_map)
 	if err != nil {
+		return SyncResult{}, err
+	}
+
+	return SyncResult{DNSConflicts: conflicts}, nil
+}
+
+// EnsureAccessApplications creates an account-level self-hosted Access
+// application for every requested hostname that has none.
+func (c *Client) EnsureAccessApplications(ctx context.Context, logger logr.Logger, config *Config) error {
+	if len(config.AccessAppRequests) == 0 {
+		return nil
+	}
+
+	existing := make(map[string]struct{})
+	pager := c.cloudflareAPI.ZeroTrust.Access.Applications.ListAutoPaging(ctx, zero_trust.AccessApplicationListParams{
+		AccountID: cloudflare.F(c.accountID),
+	})
+	for pager.Next() {
+		existing[pager.Current().Domain] = struct{}{}
+	}
+	if err := pager.Err(); err != nil {
+		logger.Error(err, "Failed to list Access Applications")
 		return err
 	}
 
-	err = c.synchronizeDns(ctx, logger, config, zone_map, nil)
-	if err != nil {
-		return err
-	}
-
-	if config.KubernetesApiTunnelConfig.Enabled {
-		err := c.ensureAccessApplication(ctx, logger, config.KubernetesApiTunnelConfig.Domain, config.KubernetesApiTunnelConfig.CloudflareAccessAppName)
-		if err != nil {
-			return err
+	for _, domain := range slices.Sorted(maps.Keys(config.AccessAppRequests)) {
+		if _, ok := existing[domain]; ok {
+			continue
 		}
-	}
-
-	for hostname, app_name := range config.AccessAppRequests {
-		err := c.ensureAccessApplication(ctx, logger, hostname, app_name)
+		app_name := config.AccessAppRequests[domain]
+		logger.Info("Creating Access application", "domain", domain, "name", app_name)
+		_, err := c.cloudflareAPI.ZeroTrust.Access.Applications.New(ctx, zero_trust.AccessApplicationNewParams{
+			AccountID: cloudflare.F(c.accountID),
+			Body: zero_trust.AccessApplicationNewParamsBodySelfHostedApplication{
+				Name:   cloudflare.F(app_name),
+				Domain: cloudflare.F(domain),
+				Type:   cloudflare.F(zero_trust.ApplicationTypeSelfHosted),
+			},
+		})
 		if err != nil {
+			logger.Error(err, "Failed to create Access application", "domain", domain)
 			return err
 		}
 	}
@@ -224,34 +235,18 @@ func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr
 	return nil
 }
 
-// desiredIngressRules renders the complete rule list in a stable order: the
-// rules of each Ingress in Ingress UID order, the Kubernetes API rule, and the
+// desiredIngressRules converts the rules to their API form and appends the
 // catch-all rule cloudflared requires last.
 func desiredIngressRules(config *Config) []zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress {
-	rules := make([]zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress, 0)
-
-	for _, uid := range slices.Sorted(maps.Keys(config.Ingresses)) {
-		for _, record := range *config.Ingresses[uid] {
-			rules = append(rules, ingressRuleParam(record))
-		}
+	rules := make([]zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress, 0, len(config.Rules)+1)
+	for _, record := range config.Rules {
+		rules = append(rules, ingressRuleParam(record))
 	}
-
-	if config.KubernetesApiTunnelConfig.Enabled {
-		rules = append(rules, zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress{
-			Hostname: cloudflare.F(config.KubernetesApiTunnelConfig.Domain),
-			Service:  cloudflare.F(config.KubernetesApiTunnelConfig.GetService()),
-			OriginRequest: cloudflare.F(zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngressOriginRequest{
-				ProxyType: cloudflare.F(socksProxyType),
-			}),
-		})
-	}
-
 	if len(rules) > 0 {
 		rules = append(rules, zero_trust.TunnelCloudflaredConfigurationUpdateParamsConfigIngress{
 			Service: cloudflare.F("http_status:404"),
 		})
 	}
-
 	return rules
 }
 
@@ -396,77 +391,107 @@ func (c *Client) zoneIDFor(hostname string, zone_map map[string]string) string {
 	return zone_map[best]
 }
 
-func desiredHostnames(config *Config) []string {
-	hostnames := make([]string, 0)
-	for _, ingressRecords := range config.Ingresses {
-		for _, record := range *ingressRecords {
-			if len(record.Hostname) > 0 {
-				hostnames = append(hostnames, record.Hostname)
-			}
-		}
-	}
-	if config.KubernetesApiTunnelConfig.Enabled {
-		hostnames = append(hostnames, config.KubernetesApiTunnelConfig.Domain)
-	}
-	return hostnames
-}
-
-// synchronizeDns creates a tunnel CNAME for every desired hostname and deletes
-// tunnel CNAMEs no rule uses, in the zones of the desired hostnames and of
-// removed_hostnames.
-func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config *Config, zone_map map[string]string, removed_hostnames []string) error {
-	zone_hostnames := make(map[string]map[string]struct{})
-	scan_zones := make(map[string]struct{})
-
-	for _, hostname := range desiredHostnames(config) {
-		zoneID := c.zoneIDFor(hostname, zone_map)
-		if len(zoneID) == 0 {
-			logger.Info("Failed to find zone ID", "hostname", hostname)
+// synchronizeDns makes the tunnel CNAME records in every zone match the rule
+// hostnames and returns the hostnames whose name another record holds. A zone
+// the token can list but not read DNS records in is skipped, unless a rule
+// needs a hostname in it.
+func (c *Client) synchronizeDns(ctx context.Context, logger logr.Logger, config *Config, zone_map map[string]string) ([]string, error) {
+	desired := make(map[string]map[string]struct{})
+	for _, record := range config.Rules {
+		if len(record.Hostname) == 0 {
 			continue
 		}
-		if _, ok := zone_hostnames[zoneID]; !ok {
-			zone_hostnames[zoneID] = make(map[string]struct{})
+		zoneID := c.zoneIDFor(record.Hostname, zone_map)
+		if len(zoneID) == 0 {
+			logger.Info("Failed to find zone ID", "hostname", record.Hostname)
+			continue
 		}
-		zone_hostnames[zoneID][hostname] = dummy
-		scan_zones[zoneID] = dummy
+		if _, ok := desired[zoneID]; !ok {
+			desired[zoneID] = make(map[string]struct{})
+		}
+		desired[zoneID][record.Hostname] = struct{}{}
 	}
 
-	for _, hostname := range removed_hostnames {
-		if zoneID := c.zoneIDFor(hostname, zone_map); len(zoneID) > 0 {
-			scan_zones[zoneID] = dummy
-		}
-	}
-
-	for zoneID, hostnames := range zone_hostnames {
-		if err := c.createDNSRecords(ctx, logger, zoneID, slices.Collect(maps.Keys(hostnames))); err != nil {
-			return err
-		}
-	}
-
-	for zoneID := range scan_zones {
-		records, err := c.listTunnelDnsRecords(ctx, logger, zoneID)
+	conflicts := make([]string, 0)
+	for _, zoneID := range slices.Sorted(maps.Values(zone_map)) {
+		records, err := c.listTunnelDnsRecords(ctx, zoneID)
 		if err != nil {
-			return err
-		}
-		for _, record := range records {
-			if _, ok := zone_hostnames[zoneID][record.Name]; ok {
+			if cfErr, ok := errors.AsType[*cloudflare.Error](err); ok && cfErr.StatusCode == http.StatusForbidden && len(desired[zoneID]) == 0 {
+				logger.Info("Skipping zone without DNS read permission", "zoneID", zoneID)
 				continue
 			}
+			logger.Error(err, "Failed to list DNS records", "zoneID", zoneID)
+			return nil, err
+		}
+
+		existing := make(map[string]struct{}, len(records))
+		for _, record := range records {
+			if _, ok := desired[zoneID][record.Name]; ok {
+				existing[record.Name] = struct{}{}
+				continue
+			}
+			logger.Info("Deleting DNS record", "name", record.Name)
 			_, err := c.cloudflareAPI.DNS.Records.Delete(ctx, record.ID, dns.RecordDeleteParams{
 				ZoneID: cloudflare.F(zoneID),
 			})
 			if err != nil {
-				logger.Error(err, "Failed to delete DNS record")
-				return err
+				logger.Error(err, "Failed to delete DNS record", "name", record.Name)
+				return nil, err
+			}
+		}
+
+		for _, hostname := range slices.Sorted(maps.Keys(desired[zoneID])) {
+			if _, ok := existing[hostname]; ok {
+				continue
+			}
+			conflict, err := c.createDNSRecord(ctx, logger, zoneID, hostname)
+			if err != nil {
+				return nil, err
+			}
+			if conflict {
+				conflicts = append(conflicts, hostname)
 			}
 		}
 	}
 
-	return nil
+	return conflicts, nil
 }
 
-// listTunnelDnsRecords lists the DNS records in a zone that point to the tunnel.
-func (c *Client) listTunnelDnsRecords(ctx context.Context, logger logr.Logger, zoneID string) ([]dns.RecordResponse, error) {
+// dnsRecordExistsCode is the Cloudflare API error code for a DNS name that
+// another A, AAAA or CNAME record already holds.
+const dnsRecordExistsCode = 81053
+
+// createDNSRecord creates a proxied CNAME from hostname to the tunnel and
+// reports a conflict when another record already holds the name.
+func (c *Client) createDNSRecord(ctx context.Context, logger logr.Logger, zoneID, hostname string) (bool, error) {
+	logger.Info("Creating DNS record", "name", hostname)
+	_, err := c.cloudflareAPI.DNS.Records.New(ctx, dns.RecordNewParams{
+		ZoneID: cloudflare.F(zoneID),
+		Body: dns.CNAMERecordParam{
+			Proxied: cloudflare.F(true),
+			Type:    cloudflare.F(dns.CNAMERecordTypeCNAME),
+			Name:    cloudflare.F(hostname),
+			Content: cloudflare.F(c.tunnelID + "." + tunnelDomain),
+			Comment: cloudflare.F("Automatically created by Cloudflare Tunnel Ingress Controller"),
+		},
+	})
+	if err == nil {
+		return false, nil
+	}
+	if cfErr, ok := errors.AsType[*cloudflare.Error](err); ok && slices.ContainsFunc(cfErr.Errors, func(e shared.ErrorData) bool {
+		return e.Code == dnsRecordExistsCode
+	}) {
+		logger.Info("DNS name is held by another record", "name", hostname)
+		return true, nil
+	}
+	logger.Error(err, "Failed to create DNS record", "name", hostname)
+	return false, err
+}
+
+// listTunnelDnsRecords lists the DNS records in a zone that point to the
+// tunnel. The caller logs a listing error, since a forbidden zone with no
+// desired hostname is only worth an info-level log, not an error.
+func (c *Client) listTunnelDnsRecords(ctx context.Context, zoneID string) ([]dns.RecordResponse, error) {
 	pager := c.cloudflareAPI.DNS.Records.ListAutoPaging(ctx, dns.RecordListParams{
 		ZoneID: cloudflare.F(zoneID),
 		Content: cloudflare.F(dns.RecordListParamsContent{
@@ -478,7 +503,6 @@ func (c *Client) listTunnelDnsRecords(ctx context.Context, logger logr.Logger, z
 		records = append(records, pager.Current())
 	}
 	if err := pager.Err(); err != nil {
-		logger.Error(err, "Failed to list DNS records")
 		return nil, err
 	}
 	return records, nil
@@ -503,75 +527,4 @@ func (c *Client) getDnsZoneMap(ctx context.Context, logger logr.Logger) (map[str
 	}
 
 	return result, nil
-}
-
-func (c *Client) createDNSRecords(ctx context.Context, logger logr.Logger, zoneID string, hostnames []string) error {
-	logger.Info("Creating new DNS record")
-
-	truth := true
-
-	// create the DNS records
-	for _, hostname := range hostnames {
-		_, err := c.cloudflareAPI.DNS.Records.New(ctx, dns.RecordNewParams{
-			ZoneID: cloudflare.String(zoneID),
-			Body: dns.CNAMERecordParam{
-				Proxied: cloudflare.Bool(truth),
-				Type:    cloudflare.F(dns.CNAMERecordTypeCNAME),
-				Name:    cloudflare.String(hostname),
-				Content: cloudflare.String(c.tunnelID + "." + tunnelDomain),
-				Comment: cloudflare.String("Automatically created by Cloudflare Tunnel Ingress Controller"),
-			},
-		})
-		if err != nil {
-			cfErr := &cloudflare.Error{}
-			if errors.As(err, &cfErr) {
-				for _, e := range cfErr.Errors {
-					if e.Code != 81053 {
-						logger.Error(err, "Failed to create DNS record")
-						return err
-					}
-				}
-				// 81053: "Record already exists"
-				continue
-			}
-
-			logger.Error(err, "Failed to create DNS record")
-			return err
-		}
-	}
-
-	return nil
-}
-
-// ensureAccessApplication creates an account-level self-hosted Access
-// application for domain unless an application for it already exists.
-func (c *Client) ensureAccessApplication(ctx context.Context, logger logr.Logger, domain, app_name string) error {
-	ch := c.cloudflareAPI.ZeroTrust.Access.Applications.ListAutoPaging(ctx, zero_trust.AccessApplicationListParams{
-		AccountID: cloudflare.F(c.accountID),
-	})
-	for ch.Next() {
-		app := ch.Current()
-		if app.Domain == domain {
-			return nil
-		}
-	}
-	if err := ch.Err(); err != nil {
-		logger.Error(err, "Failed to list Access Applications")
-		return err
-	}
-
-	logger.Info("Creating Access application", "domain", domain, "name", app_name)
-
-	_, err := c.cloudflareAPI.ZeroTrust.Access.Applications.New(ctx, zero_trust.AccessApplicationNewParams{
-		AccountID: cloudflare.F(c.accountID),
-		Body: zero_trust.AccessApplicationNewParamsBodySelfHostedApplication{
-			Name:   cloudflare.String(app_name),
-			Domain: cloudflare.String(domain),
-			Type:   cloudflare.F(zero_trust.ApplicationTypeSelfHosted),
-		},
-	})
-	if err != nil {
-		logger.Error(err, "Failed to create Access application", "domain", domain)
-	}
-	return err
 }

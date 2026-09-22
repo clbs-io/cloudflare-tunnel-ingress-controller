@@ -34,6 +34,9 @@ spec:
           args:
             - --ingress-class-name={{ .Values.ingressClass.name }}
             - --controller-class-name={{ .Values.ingressClass.controller }}
+            {{- range .Values.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /livez

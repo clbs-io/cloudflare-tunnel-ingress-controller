@@ -39,6 +39,8 @@ If you enable the [Kubernetes API Tunnel](#kubernetes-api-tunnel) or use the [`a
 > [!IMPORTANT]
 > Scope the token to the specific account and zone(s) you need. Avoid using *All accounts* or *All zones* unless necessary.
 
+Zones the token can list but whose DNS records it cannot read are skipped; every zone holding an Ingress hostname needs `Zone : DNS : Edit`.
+
 ![Screenshot: Cloudflare API Token creation](assets/create-cloudflare-api-token.png)
 
 You will also need your **Cloudflare Account ID**, which you can find in the Cloudflare dashboard.
@@ -149,6 +151,7 @@ spec:
 | `ingressClass.controller` | Controller class identifier | `clbs.io/cloudflare-tunnel-ingress-controller` |
 | `ingressClass.isDefaultClass` | Set as default IngressClass | `false` |
 | `replicaCount` | Controller replicas | `1` |
+| `extraArgs` | Extra arguments appended to the controller container | `[]` |
 | `image.pullSecrets` | Image pull secrets for controller | `[]` |
 | `resources` | CPU/memory requests and limits | See [values.yaml](charts/cloudflare-tunnel-ingress-controller/values.yaml) |
 | `podSecurityContext` | Pod-level security context | `runAsNonRoot: true`, `runAsUser: 1001` |
@@ -161,6 +164,8 @@ spec:
 > The `config.cloudflared.image` must have an explicit version tag. Using `latest` is not supported and will cause an error.
 
 All defaults are in [values.yaml](charts/cloudflare-tunnel-ingress-controller/values.yaml).
+
+The controller also accepts `--resync-period` (full reconcile interval, default `10m`) and `--leader-elect` (default `true`, so only one replica reconciles); pass them through `extraArgs`, for example `extraArgs: ["--resync-period=5m"]`.
 
 ## Usage
 
@@ -190,9 +195,15 @@ The controller will automatically create a tunnel route and a DNS CNAME record f
 
 ### Path Types
 
-- **`Prefix`** — matches URL path prefixes (recommended)
-- **`ImplementationSpecific`** — treated as prefix match
-- **`Exact`** — not supported (silently skipped)
+- **`Prefix`** — Kubernetes prefix match on path elements: `/static` matches `/static` and `/static/x`, not `/staticfoo`
+- **`Exact`** — the path must match exactly
+- **`ImplementationSpecific`** — a [Go regular expression](https://pkg.go.dev/regexp/syntax) matched anywhere in the path, as `cloudflared` does; an empty path, `/` and `^/` match every path, like `Prefix` `/`
+
+Rules are ordered so the most specific one wins: exact hosts before wildcard hosts before rules without a host, `Exact` before other path types, longer paths first. When two Ingresses define the same host and path, the older Ingress wins.
+
+A wildcard host such as `*.example.com` matches subdomains of any depth in `cloudflared` (`a.example.com` and `a.b.example.com`), unlike Kubernetes, where it matches a single label.
+
+When the [Kubernetes API Tunnel](#kubernetes-api-tunnel) is enabled, its hostname cannot be used by Ingresses: their rules on that host are dropped with a `RuleConflict` Event.
 
 ### Annotations
 
@@ -282,6 +293,18 @@ spec:
                   number: 443
 ```
 
+### Events
+
+The controller reports Ingress content it cannot publish as Warning Events on the Ingress (`kubectl describe ingress <name>`); the rest of the Ingress is still published:
+
+| Reason | Cause |
+|---|---|
+| `RuleSkipped` | resource backend, unknown named Service port, invalid `ImplementationSpecific` regex, missing `pathType` |
+| `RuleConflict` | the host and path are already served by an older Ingress, or the host is the Kubernetes API Tunnel hostname |
+| `InvalidAnnotation` | an annotation value cannot be parsed, or an unknown backend protocol |
+| `Unsupported` | `spec.defaultBackend` |
+| `DNSConflict` | a DNS record for the host exists and does not point to the tunnel |
+
 ## Kubernetes API Tunnel
 
 Enable direct access to the Kubernetes API server through Cloudflare Tunnel with Zero Trust protection. This is useful when `kubectl port-forward` fails through regular tunnel routing due to HTTP connection upgrades.
@@ -334,7 +357,7 @@ clusters:
 
 - **Single tunnel per installation** — all Ingress resources share one Cloudflare Tunnel
 - **Cloudflared deployment** — fixed at 1 replica; resource limits not configurable; metrics port hardcoded to `9090`
-- **`pathType: Exact`** — not supported (silently skipped)
+- **`spec.defaultBackend`** — not supported (reported as an Event)
 - **TLS** — all TLS termination happens at Cloudflare edge; the controller does not manage certificates
 - **Kubernetes API Tunnel** — access policies must be configured manually in Cloudflare dashboard
 - **Namespace** — cloudflared deploys in the controller's namespace; Ingress resources are watched across all namespaces

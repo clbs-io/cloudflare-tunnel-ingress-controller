@@ -17,6 +17,9 @@ resources:
     cpu: 100m
     memory: 128Mi
 
+# Extra controller flags, for example ["--resync-period=5m"]
+extraArgs: []
+
 ingressClass:
   name: cloudflare-tunnel
   controller: clbs.io/cloudflare-tunnel-ingress-controller

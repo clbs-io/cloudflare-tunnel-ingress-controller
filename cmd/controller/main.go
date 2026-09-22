@@ -34,6 +34,9 @@ var (
 	ingressClassName    string
 	controllerClassName string
 
+	resyncPeriod time.Duration
+	leaderElect  bool
+
 	cloudflaredImage           string
 	cloudflaredImagePullPolicy string
 
@@ -75,7 +78,12 @@ func run(logger logr.Logger) error {
 		return fmt.Errorf("could not get k8s config: %w", err)
 	}
 
-	mgr, err := manager.New(cfg, manager.Options{})
+	mgr, err := manager.New(cfg, manager.Options{
+		LeaderElection:                leaderElect,
+		LeaderElectionID:              "cloudflare-tunnel-ingress-controller",
+		LeaderElectionNamespace:       controller.Namespace(),
+		LeaderElectionReleaseOnCancel: true,
+	})
 	if err != nil {
 		return fmt.Errorf("could not create manager: %w", err)
 	}
@@ -94,6 +102,7 @@ func run(logger logr.Logger) error {
 	ctrlr, err := controller.RegisterIngressController(logger, mgr, controller.IngressControllerOptions{
 		IngressClassName:    ingressClassName,
 		ControllerClassName: controllerClassName,
+		ResyncPeriod:        resyncPeriod,
 		TunnelClient:        tunnelClient,
 		CloudflaredConfig: controller.CloudflaredConfig{
 			CloudflaredImage:           cloudflaredImage,
@@ -117,53 +126,46 @@ func run(logger logr.Logger) error {
 
 	healthSrv := health.NewServer(logger.WithName("health"), 8081)
 
-	var wg sync.WaitGroup
+	// Whichever of the health server and the manager stops first cancels ctx,
+	// so the other stops too and the process exits instead of staying live
+	// without reconciling.
+	var (
+		wg         sync.WaitGroup
+		health_err error
+		mgr_err    error
+	)
 
 	wg.Go(func() {
+		defer stop()
 		if err := healthSrv.Start(ctx); err != nil {
-			logger.Error(err, "health server error")
+			health_err = fmt.Errorf("health server: %w", err)
 		}
 	})
 
 	wg.Go(func() {
+		defer stop()
 		if err := mgr.Start(ctx); err != nil {
-			logger.Error(err, "could not start manager")
+			mgr_err = fmt.Errorf("manager: %w", err)
 		}
 	})
 
+	// WaitForCacheSync returns false only once ctx is done.
 	logger.Info("Waiting for cache to sync...")
-	for !mgr.GetCache().WaitForCacheSync(ctx) {
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(100 * time.Millisecond):
-		}
+	if mgr.GetCache().WaitForCacheSync(ctx) {
+		healthSrv.SetReady(true)
+		logger.Info("Controller is ready")
 	}
-
-	for {
-		err = ctrlr.EnsureCloudflaredDeploymentExists(ctx, logger)
-		if err != nil {
-			logger.Error(err, "could not ensure cloudflared deployment exists")
-			select {
-			case <-ctx.Done():
-				return nil
-			case <-time.After(1 * time.Second):
-			}
-			continue
-		}
-		break
-	}
-
-	healthSrv.SetReady(true)
-	logger.Info("Controller is ready")
 
 	wg.Wait()
-	return nil
+	logger.Info("Controller stopped", "cause", context.Cause(ctx))
+	return errors.Join(mgr_err, health_err)
 }
 
 func loadConfig() error {
 	flag.StringVar(&ingressClassName, "ingress-class-name", "cloudflare-tunnel", "Ingress class name to watch for")
 	flag.StringVar(&controllerClassName, "controller-class-name", "clbs.io/cloudflare-tunnel-ingress-controller", "Controller class name to set on Ingress")
+	flag.DurationVar(&resyncPeriod, "resync-period", 10*time.Minute, "Interval of the full reconcile when nothing changes")
+	flag.BoolVar(&leaderElect, "leader-elect", true, "Elect a leader so only one replica reconciles")
 	flag.Parse()
 
 	if tokenFile := os.Getenv("CLOUDFLARE_API_TOKEN_FILE"); tokenFile != "" {

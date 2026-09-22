@@ -5,9 +5,11 @@ package cftest
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -31,6 +33,8 @@ type DNSRecord struct {
 	Name    string `json:"name"`
 	Type    string `json:"type"`
 	Content string `json:"content"`
+	// ZoneID is the zone holding the record.
+	ZoneID string `json:"-"`
 }
 
 type AccessApp struct {
@@ -51,17 +55,22 @@ type Server struct {
 	records    []DNSRecord
 	accessApps []AccessApp
 	nextID     int
+	zones      map[string]string // zone name -> zone ID
+	creates    int
+	deniedDNS  map[string]struct{} // zone IDs where DNS record listing returns 403
 
 	// ConfigPuts holds the ingress array of every tunnel configuration PUT.
 	ConfigPuts []json.RawMessage
 	// FailConfigPut makes tunnel configuration PUTs fail with HTTP 500.
 	FailConfigPut bool
+	// FailAccessAppCreate makes Access application creation fail with HTTP 500.
+	FailAccessAppCreate bool
 
 	srv *httptest.Server
 }
 
 func New(t testing.TB) *Server {
-	s := &Server{ingress: json.RawMessage("[]")}
+	s := &Server{ingress: json.RawMessage("[]"), zones: map[string]string{ZoneName: ZoneID}}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /accounts/{acc}/tunnels", s.listTunnels)
@@ -104,7 +113,45 @@ func (s *Server) AddDNSRecord(name, content string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.nextID++
-	s.records = append(s.records, DNSRecord{ID: fmt.Sprintf("rec-%d", s.nextID), Name: name, Type: "CNAME", Content: content})
+	s.records = append(s.records, DNSRecord{ID: fmt.Sprintf("rec-%d", s.nextID), Name: name, Type: "CNAME", Content: content, ZoneID: s.zoneFor(name)})
+}
+
+// AddZone adds a zone to the account and returns its ID.
+func (s *Server) AddZone(name string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	id := "zone-" + name
+	s.zones[name] = id
+	return id
+}
+
+// DenyDNS makes DNS record listing in the given zone fail with HTTP 403, as
+// Cloudflare does when the token has Zone:Read but no DNS:Read/Edit there.
+func (s *Server) DenyDNS(zoneID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.deniedDNS == nil {
+		s.deniedDNS = make(map[string]struct{})
+	}
+	s.deniedDNS[zoneID] = struct{}{}
+}
+
+// DNSCreates returns how many DNS records were created through the API.
+func (s *Server) DNSCreates() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.creates
+}
+
+// zoneFor returns the ID of the most specific zone containing name.
+func (s *Server) zoneFor(name string) string {
+	best := ""
+	for zone := range s.zones {
+		if (name == zone || strings.HasSuffix(name, "."+zone)) && len(zone) > len(best) {
+			best = zone
+		}
+	}
+	return s.zones[best]
 }
 
 // DNSRecordNames returns the names of all stored DNS records, sorted.
@@ -216,16 +263,27 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) listZones(w http.ResponseWriter, r *http.Request) {
-	writePage(w, r, []map[string]any{{"id": ZoneID, "name": ZoneName}})
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	zones := make([]map[string]any, 0, len(s.zones))
+	for _, name := range slices.Sorted(maps.Keys(s.zones)) {
+		zones = append(zones, map[string]any{"id": s.zones[name], "name": name})
+	}
+	writePage(w, r, zones)
 }
 
 func (s *Server) listRecords(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	zone := r.PathValue("zone")
+	if _, denied := s.deniedDNS[zone]; denied {
+		writeError(w, http.StatusForbidden, 10000, "Authentication error")
+		return
+	}
 	content := r.URL.Query().Get("content.exact")
 	var out []DNSRecord
 	for _, rec := range s.records {
-		if content == "" || rec.Content == content {
+		if rec.ZoneID == zone && (content == "" || rec.Content == content) {
 			out = append(out, rec)
 		}
 	}
@@ -238,15 +296,17 @@ func (s *Server) createRecord(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, 1001, err.Error())
 		return
 	}
+	rec.ZoneID = r.PathValue("zone")
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if slices.ContainsFunc(s.records, func(e DNSRecord) bool { return e.Name == rec.Name }) {
+	if slices.ContainsFunc(s.records, func(e DNSRecord) bool { return e.Name == rec.Name && e.ZoneID == rec.ZoneID }) {
 		writeError(w, http.StatusBadRequest, 81053, "An A, AAAA, or CNAME record with that host already exists.")
 		return
 	}
 	s.nextID++
 	rec.ID = fmt.Sprintf("rec-%d", s.nextID)
 	s.records = append(s.records, rec)
+	s.creates++
 	writeResult(w, rec)
 }
 
@@ -272,6 +332,10 @@ func (s *Server) createAccessApp(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.FailAccessAppCreate {
+		writeError(w, http.StatusInternalServerError, 1003, "access application creation failed")
+		return
+	}
 	s.nextID++
 	app.ID = fmt.Sprintf("app-%d", s.nextID)
 	app.Scope = r.PathValue("scope")
