@@ -26,6 +26,9 @@ jobs:
         with:
           release-branch: main
           minor-identifier: feat
+          # Matched against the start of each lowercased commit message line: a
+          # Conventional Commits "type!:" header or a "BREAKING CHANGE:" footer.
+          major-identifier: '(?:[a-z]+(?:\([^)]*\))?!:|breaking[ -]change:)'
           prefix: v
 
       - name: Tag
