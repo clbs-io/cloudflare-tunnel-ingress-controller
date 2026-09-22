@@ -1,3 +1,4 @@
+{{- /* Needs the Prometheus Operator CRDs (monitoring.coreos.com). */ -}}
 {{- if .Values.cloudflared.podMonitor.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor

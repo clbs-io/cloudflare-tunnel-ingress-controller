@@ -10,7 +10,9 @@ import (
 )
 
 // ensureStatus sets the Ingress load balancer status to the published
-// hostnames.
+// hostnames and writes only when they differ. Status lists the Ingress's own
+// hostnames rather than the tunnel CNAME target; hostnames arrive sorted, so
+// an order-sensitive comparison is enough.
 func (c *IngressController) ensureStatus(ctx context.Context, logger logr.Logger, ing *networkingv1.Ingress, hostnames []string) error {
 	current := make([]string, 0, len(ing.Status.LoadBalancer.Ingress))
 	for _, lb := range ing.Status.LoadBalancer.Ingress {

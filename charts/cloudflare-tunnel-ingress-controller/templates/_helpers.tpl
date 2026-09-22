@@ -1,12 +1,14 @@
 {{/*
-Expand the name of the chart.
+Chart name, or nameOverride.
 */}}
 {{- define "cloudflare-tunnel-ingress-controller.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
-Create a default fully qualified app name.
+Name prefix of the controller's resources: fullnameOverride, or the release
+name followed by the chart name unless the release name already contains it.
+Truncated to 63 characters, the limit of a DNS label.
 */}}
 {{- define "cloudflare-tunnel-ingress-controller.fullname" -}}
 {{- if .Values.fullnameOverride }}
@@ -22,14 +24,14 @@ Create a default fully qualified app name.
 {{- end }}
 
 {{/*
-Create chart name and version as used by the chart label.
+Chart name and version for the helm.sh/chart label.
 */}}
 {{- define "cloudflare-tunnel-ingress-controller.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
-Common labels.
+Labels of the controller's resources.
 */}}
 {{- define "cloudflare-tunnel-ingress-controller.labels" -}}
 helm.sh/chart: {{ include "cloudflare-tunnel-ingress-controller.chart" . }}
@@ -41,7 +43,8 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{/*
-Selector labels.
+Selector labels of the controller pods. A Deployment's selector is immutable,
+so changing these breaks upgrades.
 */}}
 {{- define "cloudflare-tunnel-ingress-controller.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "cloudflare-tunnel-ingress-controller.name" . }}
@@ -56,10 +59,10 @@ Service account name.
 {{- end }}
 
 {{/*
-Name of the cloudflared Deployment, based on the release name to stay within
-63 characters. A release named so this collides with the legacy
-controller-made Deployment name gets a different suffix instead, since Helm
-cannot adopt that Deployment and its selector is immutable.
+Name of the cloudflared Deployment, based on the release name rather than the
+full name to stay within 63 characters. For a release named cloudflare-tunnel
+it would equal the legacy controller-made Deployment, which Helm cannot adopt
+and whose immutable selector differs, so that release gets "-connector".
 */}}
 {{- define "cloudflare-tunnel-ingress-controller.cloudflaredName" -}}
 {{- $name := printf "%s-cloudflared" .Release.Name | trunc 63 | trimSuffix "-" }}
@@ -103,7 +106,8 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 
 {{/*
 cloudflared image; config.cloudflared.image takes precedence when set. The
-image must carry an explicit tag other than latest, or a digest.
+image must carry an explicit tag other than latest, or a digest, so the
+Deployment never changes version on its own.
 */}}
 {{- define "cloudflare-tunnel-ingress-controller.cloudflaredImage" -}}
 {{- $legacy := (.Values.config).cloudflared | default dict }}

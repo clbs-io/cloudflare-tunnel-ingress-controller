@@ -1,3 +1,13 @@
+// Package controller turns the Ingresses of one IngressClass into the
+// desired state of a Cloudflare Tunnel and drives it there.
+//
+// Every watched event maps to one reconcile request (see bootstrap.go), and
+// each run rebuilds the complete desired state from the cache: render.go
+// translates Ingresses into ordered cloudflared rules, package tunnel pushes
+// them and the DNS records to Cloudflare, and cloudflared.go keeps the token
+// Secret for the chart's cloudflared Deployment. Apart from the tunnel ID and
+// token, nothing is remembered between runs, so a restart, a missed event or
+// an edit made in the Cloudflare dashboard is corrected by the next run.
 package controller
 
 import (
@@ -25,9 +35,13 @@ import (
 // tunnelReconcileKey is the single request every watched event maps to.
 const tunnelReconcileKey = "tunnel"
 
+// IngressController reconciles the whole tunnel. Construct it with
+// NewIngressController or RegisterIngressController.
 type IngressController struct {
 	logger logr.Logger
 
+	// client reads through the manager's cache, backed by cluster-wide
+	// informers for Ingresses, IngressClasses and Services.
 	client       client.Client
 	recorder     events.EventRecorder
 	tunnelClient *tunnel.Client
@@ -50,6 +64,8 @@ var (
 	_namespace     string
 )
 
+// NewIngressController builds the controller from options. The Kubernetes API
+// tunnel settings come from the KUBERNETES_API_TUNNEL_* environment variables.
 func NewIngressController(logger logr.Logger, client client.Client, reader client.Reader, recorder events.EventRecorder, options IngressControllerOptions) *IngressController {
 	kubernetes_api_tunnel_enabled, _ := env.GetBool("KUBERNETES_API_TUNNEL_ENABLED", false)
 
@@ -74,7 +90,21 @@ func NewIngressController(logger logr.Logger, client client.Client, reader clien
 }
 
 // Reconcile renders the whole tunnel from all Ingresses and synchronizes it.
-// Every event maps to the same request, so the request itself is unused.
+// Every event maps to the same request, so the request itself is unused and
+// runs never overlap (MaxConcurrentReconciles is 1); that is why the
+// controller needs no locks.
+//
+// The order of the steps carries the guarantees:
+//   - an Ingress gets the finalizer before its routes are published, so it
+//     cannot disappear without the controller removing its routes;
+//   - finalizers of released Ingresses are removed only after a successful
+//     sync, so a failed Cloudflare update is retried while they still exist;
+//   - Access applications come last, so an Access failure retries the run
+//     without holding back releases and status.
+//
+// Errors go back to controller-runtime for retry with backoff. Content that
+// cannot be published never fails the run; render reports it as Warning
+// Events on its Ingress.
 func (c *IngressController) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
@@ -200,6 +230,8 @@ func (c *IngressController) classServedByUs(ctx context.Context, className *stri
 	return class.Spec.Controller == c.controllerClassName, nil
 }
 
+// servicePortLookup resolves named Service ports for render from the cache.
+// A missing Service or port only skips the rule that references it.
 func (c *IngressController) servicePortLookup(ctx context.Context) portLookup {
 	return func(namespace, name, port string) (int32, error) {
 		service := &corev1.Service{}
@@ -215,7 +247,9 @@ func (c *IngressController) servicePortLookup(ctx context.Context) portLookup {
 	}
 }
 
-// Namespace is the namespace of the controller and the cloudflared Deployment.
+// Namespace is the namespace of the controller, its leader-election lease, the
+// token Secret and the cloudflared Deployment: NAMESPACE, which the chart sets
+// from the pod's own namespace, or "default".
 func Namespace() string {
 	_namespaceOnce.Do(func() {
 		_namespace = "default"

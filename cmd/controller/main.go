@@ -1,3 +1,11 @@
+// Command controller runs the Cloudflare Tunnel Ingress controller: it
+// publishes the Ingresses of one IngressClass through a single remote-managed
+// Cloudflare Tunnel and keeps the tunnel token Secret that the chart's
+// cloudflared Deployment mounts.
+//
+// Configuration comes from flags and environment variables (see loadConfig).
+// The process exits when the manager stops, including after it loses leader
+// election, so Kubernetes restarts it rather than leaving it live but idle.
 package main
 
 import (
@@ -27,9 +35,12 @@ import (
 )
 
 var (
+	// Version is the release version, injected at build time with
+	// -ldflags "-X 'main.Version=…'".
 	Version = "dev"
 )
 
+// Configuration, set once by loadConfig before run starts.
 var (
 	ingressClassName    string
 	controllerClassName string
@@ -69,6 +80,10 @@ func main() {
 	}
 }
 
+// run starts the manager and the health server and blocks until either stops.
+// The tunnel lookup and token fetch happen before the manager starts so that
+// a wrong account, tunnel name or API token fails the process immediately
+// instead of surfacing as reconcile errors.
 func run(logger logr.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
@@ -156,6 +171,9 @@ func run(logger logr.Logger) error {
 	return errors.Join(mgr_err, health_err)
 }
 
+// loadConfig parses the flags and reads the required environment variables.
+// The Cloudflare API token comes from the file CLOUDFLARE_API_TOKEN_FILE names
+// (what the chart mounts), falling back to CLOUDFLARE_API_TOKEN.
 func loadConfig() error {
 	flag.StringVar(&ingressClassName, "ingress-class-name", "cloudflare-tunnel", "Ingress class name to watch for")
 	flag.StringVar(&controllerClassName, "controller-class-name", "clbs.io/cloudflare-tunnel-ingress-controller", "Controller class name to set on Ingress")

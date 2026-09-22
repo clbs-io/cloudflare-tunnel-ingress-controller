@@ -1,3 +1,7 @@
+{{- /*
+Environment of the controller (envFrom). The controller reads it only at
+start; the checksum annotation in deployment.yaml rolls it on a change.
+*/ -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:

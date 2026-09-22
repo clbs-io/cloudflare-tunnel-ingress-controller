@@ -3,13 +3,19 @@ Cloudflare Tunnel Ingress Controller has been installed.
 Release:    {{ .Release.Name }}
 Namespace:  {{ .Release.Namespace }}
 Tunnel:     {{ .Values.config.cloudflare.tunnelName }}
+{{- if or (not .Values.config.cloudflare.accountID) (not .Values.config.cloudflare.tunnelName) }}
 
-The controller watches for Ingress resources with class "{{ .Values.ingressClass.name }}"
-and configures Cloudflare Tunnel to route traffic to the corresponding services.
+WARNING: config.cloudflare.accountID and config.cloudflare.tunnelName are
+required; the controller exits until both are set.
+{{- end }}
+
+The controller publishes Ingresses with class "{{ .Values.ingressClass.name }}" through the tunnel:
+it writes the tunnel's routes, creates the DNS records and runs cloudflared as
+deployment/{{ include "cloudflare-tunnel-ingress-controller.cloudflaredName" . }}.
 
 To check the controller status:
 
-  kubectl get pods -n {{ .Release.Namespace }} -l "{{ include "cloudflare-tunnel-ingress-controller.selectorLabels" . | replace "\n" "," }}"
+  kubectl get pods -n {{ .Release.Namespace }} -l "{{ include "cloudflare-tunnel-ingress-controller.selectorLabels" . | replace ": " "=" | replace "\n" "," }}"
 
 To check the cloudflared rollout status:
 
@@ -18,3 +24,18 @@ To check the cloudflared rollout status:
 To verify the IngressClass:
 
   kubectl get ingressclass {{ .Values.ingressClass.name }}
+
+Content of an Ingress that cannot be published (unsupported backends, invalid
+annotations, conflicts, DNS names taken by other records) is reported as
+Warning Events on that Ingress:
+
+  kubectl describe ingress <name> -n <namespace>
+{{- if .Values.config.kubernetesApiTunnel.enabled }}
+
+The Kubernetes API is reachable at {{ .Values.config.kubernetesApiTunnel.domain }} behind the Access
+application "{{ .Values.config.kubernetesApiTunnel.cloudflareAccessAppName }}". Add its policies in the Cloudflare dashboard, then:
+
+  cloudflared access tcp --hostname {{ .Values.config.kubernetesApiTunnel.domain }} --url 127.0.0.1:1080
+
+and set proxy-url: socks5://127.0.0.1:1080 on the cluster in your kubeconfig.
+{{- end }}

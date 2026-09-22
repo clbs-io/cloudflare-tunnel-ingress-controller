@@ -17,6 +17,8 @@ type KubernetesApiTunnelConfig struct {
 	CloudflareAccessAppName string
 }
 
+// GetService is the origin URL of the route; cloudflared carries the TCP
+// stream to it over WebSocket.
 func (c KubernetesApiTunnelConfig) GetService() string {
 	return fmt.Sprintf("tcp://%s", c.Server)
 }

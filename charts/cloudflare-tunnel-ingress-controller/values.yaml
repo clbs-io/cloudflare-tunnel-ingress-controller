@@ -1,12 +1,25 @@
+# Cloudflare Tunnel Ingress Controller. Required values: config.cloudflare.accountID,
+# config.cloudflare.tunnelName and the API token Secret (config.cloudflare.apiToken).
+
+# Override the chart name used in resource names and labels. Must not be
+# "cloudflared", which would collide with the cloudflared pods' selector.
 nameOverride: ""
+# Override the full name prefix of the controller's resources.
 fullnameOverride: ""
 
+## Controller
+
+# Controller replicas. Leader election keeps one of them reconciling; more
+# replicas only shorten failover.
 replicaCount: 1
 
 image:
   repository: registry.clbs.io/clbs-io/cloudflare-tunnel-ingress-controller/main
+  # Defaults to the chart's appVersion. The chart and the controller depend on
+  # each other, so upgrade them together rather than pinning a tag.
   tag:
   pullPolicy: IfNotPresent
+  # Pull secrets for the controller image only; see cloudflared.imagePullSecrets.
   pullSecrets: []
 
 resources:
@@ -21,26 +34,45 @@ resources:
 extraArgs: []
 
 ingressClass:
+  # IngressClass created by the chart; Ingresses opt in with
+  # spec.ingressClassName.
   name: cloudflare-tunnel
+  # spec.controller of that IngressClass. Several installations may share it;
+  # each then leaves the Ingresses of the others' classes alone.
   controller: clbs.io/cloudflare-tunnel-ingress-controller
+  # Mark the IngressClass as the cluster default, so new Ingresses without
+  # spec.ingressClassName get this class.
   isDefaultClass: false
 
 config:
   cloudflare:
+    # Cloudflare account ID (required).
     accountID: ""
+    # Tunnel name (required); the tunnel is created when none of that name
+    # exists. The controller owns its configuration, so edits made in the
+    # Cloudflare dashboard are overwritten.
     tunnelName: ""
 
+    # Secret in the release namespace holding the Cloudflare API token; the
+    # README lists the permissions the token needs.
     apiToken:
       existingSecret:
         name: cloudflare-api-token
         key: token
 
+  # Expose the Kubernetes API through the tunnel as a SOCKS proxy route behind
+  # Cloudflare Access; clients connect with `cloudflared access tcp`.
   kubernetesApiTunnel:
     enabled: false
+    # API server address as cloudflared reaches it inside the cluster.
     server: kubernetes.default.svc:443
+    # Public hostname of the route; Ingresses cannot use it.
     domain: domain.example.com
+    # Access application created for the domain when none exists. It is
+    # created without policies; add them in the Cloudflare dashboard.
     cloudflareAccessAppName: "Kubernetes API Tunnel"
 
+# Security contexts of the controller pod and container.
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1001
@@ -55,14 +87,26 @@ securityContext:
     drop:
       - ALL
 
+# Scheduling of the controller pod.
 nodeSelector: {}
 tolerations: []
 affinity: {}
 
+## cloudflared
+# The tunnel connector. The controller writes the tunnel token into Secret
+# <release>-tunnel-token, which these pods mount, and rolls them when the token
+# changes.
 cloudflared:
+  # Must carry an explicit tag other than latest, or a digest; cloudflared
+  # 2025.4.0 or later. config.cloudflared.image and
+  # config.cloudflared.imagePullPolicy still take precedence when set
+  # (deprecated).
   image: cloudflare/cloudflared:2026.9.1
   imagePullPolicy: IfNotPresent
+  # Pull secrets for the cloudflared image.
   imagePullSecrets: []
+  # Each replica is a separate connector of the same tunnel; Cloudflare spreads
+  # traffic across them.
   replicas: 2
   # cloudflared tunnel flags, for example ["--protocol=quic", "--loglevel=warn"]
   extraArgs: []
@@ -74,6 +118,7 @@ cloudflared:
       memory: 256Mi
   # Longer than cloudflared's 30s --grace-period, so connections drain
   terminationGracePeriodSeconds: 45
+  # 65532 is the image's nonroot user.
   podSecurityContext:
     runAsNonRoot: true
     runAsUser: 65532
@@ -95,9 +140,13 @@ cloudflared:
   # Empty: spread replicas across nodes when possible
   topologySpreadConstraints: []
   priorityClassName: ""
+  # Keeps minAvailable pods through voluntary disruptions such as node drains;
+  # rendered only with more than one replica. Disable it on a single-node
+  # cluster, where it would block draining the only node.
   podDisruptionBudget:
     enabled: true
     minAvailable: 1
+  # PodMonitor for the metrics port; needs the Prometheus Operator CRDs.
   podMonitor:
     enabled: false
     interval: 30s

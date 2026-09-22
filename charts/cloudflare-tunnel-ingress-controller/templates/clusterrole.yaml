@@ -1,3 +1,7 @@
+{{- /*
+Cluster-wide permissions of the controller. Its reads come from informer
+caches, hence list and watch next to get.
+*/ -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -5,6 +9,7 @@ metadata:
   labels:
     {{- include "cloudflare-tunnel-ingress-controller.labels" . | nindent 4 }}
 rules:
+  {{- /* Resolve named Service ports in Ingress backends. */}}
   - apiGroups:
       - ""
     resources:
@@ -13,6 +18,7 @@ rules:
       - get
       - list
       - watch
+  {{- /* Watch Ingresses and patch the controller's finalizer onto them. */}}
   - apiGroups:
       - networking.k8s.io
     resources:
@@ -22,12 +28,17 @@ rules:
       - list
       - watch
       - patch
+  {{- /* Publish the served hostnames in .status.loadBalancer. */}}
   - apiGroups:
       - networking.k8s.io
     resources:
       - ingresses/status
     verbs:
       - patch
+  {{- /*
+  Tell Ingresses of another installation of this controller apart from
+  Ingresses moved to a foreign class.
+  */}}
   - apiGroups:
       - networking.k8s.io
     resources:
@@ -36,6 +47,7 @@ rules:
       - get
       - list
       - watch
+  {{- /* Warning Events on Ingresses whose content cannot be published. */}}
   - apiGroups:
       - events.k8s.io
     resources:

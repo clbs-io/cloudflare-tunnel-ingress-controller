@@ -13,6 +13,8 @@ import (
 	"github.com/go-logr/logr"
 )
 
+// ensureCloudflareTunnelExists finds or creates the tunnel and returns its
+// token. Both are cached by the tunnel client after the first run.
 func (c *IngressController) ensureCloudflareTunnelExists(ctx context.Context, logger logr.Logger) (string, error) {
 	logger.Info("Ensuring Cloudflare Tunnel exists")
 	if err := c.tunnelClient.EnsureTunnelExists(ctx, logger); err != nil {
@@ -28,6 +30,10 @@ func (c *IngressController) ensureCloudflareTunnelExists(ctx context.Context, lo
 	return token, nil
 }
 
+// applyOriginRequestAnnotations copies the origin annotations of an Ingress
+// into origin_config and returns a warning per value that does not parse; that
+// setting is left unset, so cloudflared's default applies. Annotations are
+// visited in sorted order to keep the warnings stable between runs.
 func applyOriginRequestAnnotations(origin_config *zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest, annotations map[string]string) []warning {
 	var warnings []warning
 	for _, k := range slices.Sorted(maps.Keys(annotations)) {
@@ -118,6 +124,8 @@ func applyOriginRequestAnnotations(origin_config *zero_trust.TunnelCloudflaredCo
 	return warnings
 }
 
+// invalidAnnotation builds the warning for an annotation value that failed to
+// parse.
 func invalidAnnotation(annotation string, err error) warning {
 	return warning{Reason: ReasonInvalidAnnotation, Message: fmt.Sprintf("annotation %s: %v", annotation, err)}
 }

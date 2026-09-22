@@ -15,13 +15,23 @@ import (
 
 // Reasons of the Warning Events emitted for an Ingress.
 const (
-	ReasonRuleSkipped       = "RuleSkipped"
-	ReasonRuleConflict      = "RuleConflict"
+	// ReasonRuleSkipped: a path cannot be published (not a Service backend,
+	// unknown named port, invalid regex or missing pathType).
+	ReasonRuleSkipped = "RuleSkipped"
+	// ReasonRuleConflict: the host and path are already served by an older
+	// Ingress, or the host is reserved for the Kubernetes API tunnel.
+	ReasonRuleConflict = "RuleConflict"
+	// ReasonInvalidAnnotation: an annotation value does not parse or is not
+	// supported; the setting keeps its default.
 	ReasonInvalidAnnotation = "InvalidAnnotation"
-	ReasonUnsupported       = "Unsupported"
-	ReasonDNSConflict       = "DNSConflict"
+	// ReasonUnsupported: the Ingress uses a field the tunnel cannot express.
+	ReasonUnsupported = "Unsupported"
+	// ReasonDNSConflict: a DNS record that does not point to the tunnel holds
+	// the hostname, so the hostname is left out of the Ingress status.
+	ReasonDNSConflict = "DNSConflict"
 )
 
+// warning is one problem found in an Ingress, emitted as a Warning Event.
 type warning struct {
 	Reason  string
 	Message string
@@ -51,6 +61,9 @@ type renderResult struct {
 // portLookup resolves a named Service port to its number.
 type portLookup func(namespace, service, port string) (int32, error)
 
+// hostClass orders rules by how specific their hostname is. cloudflared uses
+// the first matching rule, so exact hosts must precede wildcards and host-less
+// rules must come last, or a broader rule would shadow a narrower one.
 type hostClass int
 
 const (
@@ -59,6 +72,7 @@ const (
 	hostNone
 )
 
+// kubernetesApiRuleOwner names the Kubernetes API rule in conflict warnings.
 const kubernetesApiRuleOwner = "the Kubernetes API tunnel"
 
 // candidate is a rule before conflict resolution and ordering.
@@ -66,15 +80,18 @@ type candidate struct {
 	record *zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngress
 	// result of the owning Ingress; nil for the Kubernetes API rule
 	result *ingressResult
-	owner  string
+	// owner is the Ingress's namespace/name, for conflict messages
+	owner string
 	// Kubernetes path, for messages
 	path string
 	// reservesHost drops every other candidate on the same hostname
 	reservesHost bool
-	class        hostClass
-	labels       int
-	exact        bool
-	length       int
+	// class, labels, exact and length are the specificity sort keys, see
+	// compareCandidates
+	class  hostClass
+	labels int
+	exact  bool
+	length int
 	// precedence of the owner and position within it, lower first
 	rank     int
 	position int
@@ -90,6 +107,8 @@ func render(ingresses []networkingv1.Ingress, kubeAPI KubernetesApiTunnelConfig,
 		Results:           make(map[types.UID]*ingressResult, len(ingresses)),
 	}
 
+	// The Kubernetes API rule goes first with rank -1, so it wins every
+	// conflict; it also reserves its hostname.
 	candidates := make([]candidate, 0)
 	if kubeAPI.Enabled {
 		class, labels := classifyHost(kubeAPI.Domain)
@@ -110,6 +129,9 @@ func render(ingresses []networkingv1.Ingress, kubeAPI KubernetesApiTunnelConfig,
 		out.AccessAppRequests[kubeAPI.Domain] = kubeAPI.CloudflareAccessAppName
 	}
 
+	// Candidates are appended in precedence order, oldest Ingress first and
+	// then spec order, because resolveConflicts keeps the first candidate for
+	// a host and path.
 	ordered := slices.Clone(ingresses)
 	slices.SortStableFunc(ordered, compareIngressPrecedence)
 
@@ -145,6 +167,10 @@ func render(ingresses []networkingv1.Ingress, kubeAPI KubernetesApiTunnelConfig,
 	return out
 }
 
+// ingressCandidates turns the paths of one Ingress into candidates. The
+// backend scheme and origin settings come from the Ingress annotations and
+// apply to all of its rules. Paths that cannot be published are skipped with
+// a warning on result.
 func ingressCandidates(ingress *networkingv1.Ingress, rank int, result *ingressResult, lookup portLookup) []candidate {
 	owner := ingress.Namespace + "/" + ingress.Name
 
@@ -250,6 +276,9 @@ func matchAllPath(hostless bool) string {
 	return ""
 }
 
+// classifyHost returns the class of a hostname and its number of DNS labels.
+// The "*" of a wildcard counts as a label, so *.a.example.com (4) sorts ahead
+// of *.example.com (3).
 func classifyHost(hostname string) (hostClass, int) {
 	switch {
 	case len(hostname) == 0:
@@ -296,6 +325,11 @@ func resolveConflicts(candidates []candidate) []candidate {
 	return kept
 }
 
+// compareCandidates orders candidates for cloudflared's first match, most
+// specific first: exact hosts, then wildcards (more labels first), then
+// host-less rules; by hostname so each host's rules stay together; Exact
+// paths before others, and longer paths first, which gives Kubernetes path
+// precedence; ties go to the older Ingress and the earlier path in its spec.
 func compareCandidates(a, b candidate) int {
 	return cmp.Or(
 		cmp.Compare(a.class, b.class),
@@ -308,6 +342,7 @@ func compareCandidates(a, b candidate) int {
 	)
 }
 
+// exactRank sorts exact path matches first.
 func exactRank(exact bool) int {
 	if exact {
 		return 0
@@ -315,6 +350,8 @@ func exactRank(exact bool) int {
 	return 1
 }
 
+// compareIngressPrecedence orders Ingresses oldest first, then by namespace
+// and name; the first one wins a host and path conflict.
 func compareIngressPrecedence(a, b networkingv1.Ingress) int {
 	return cmp.Or(
 		a.CreationTimestamp.Compare(b.CreationTimestamp.Time),

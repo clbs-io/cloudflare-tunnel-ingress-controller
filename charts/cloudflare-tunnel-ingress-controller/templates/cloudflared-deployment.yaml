@@ -1,3 +1,8 @@
+{{- /*
+cloudflared, the tunnel connector. Every replica connects the same tunnel;
+the ingress rules come from the Cloudflare API, the token from the Secret the
+controller writes.
+*/ -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -6,6 +11,8 @@ metadata:
     {{- include "cloudflare-tunnel-ingress-controller.cloudflaredLabels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.cloudflared.replicas }}
+  {{- /* Start a new connector before stopping an old one, so a rollout never
+  leaves the tunnel without one. */}}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -26,6 +33,7 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
+      {{- /* cloudflared never talks to the Kubernetes API. */}}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: {{ .Values.cloudflared.terminationGracePeriodSeconds }}
       {{- with .Values.cloudflared.imagePullSecrets }}
@@ -43,6 +51,11 @@ spec:
         - name: cloudflared
           image: {{ include "cloudflare-tunnel-ingress-controller.cloudflaredImage" . | quote }}
           imagePullPolicy: {{ include "cloudflare-tunnel-ingress-controller.cloudflaredImagePullPolicy" . }}
+          {{- /*
+          The image entrypoint is `cloudflared --no-autoupdate`. extraArgs are
+          flags of the tunnel command, so they go before `run`. The token comes
+          from the mounted file, never from the command line.
+          */}}
           args:
             - tunnel
             - --metrics
@@ -57,6 +70,11 @@ spec:
             - name: metrics
               containerPort: 9090
               protocol: TCP
+          {{- /*
+          /ready succeeds only while connected to the Cloudflare edge;
+          /healthcheck only checks the process, so an edge outage marks pods
+          unready without restarting them.
+          */}}
           readinessProbe:
             httpGet:
               path: /ready
@@ -82,6 +100,7 @@ spec:
             - name: tunnel-token
               mountPath: /etc/cloudflared
               readOnly: true
+      {{- /* Written by the controller; pods wait for it on a first install. */}}
       volumes:
         - name: tunnel-token
           secret:

@@ -71,10 +71,13 @@ func testIngress(name string, minute int, rules ...testRule) networkingv1.Ingres
 	return ingress
 }
 
+// noServices is a portLookup that finds no Service.
 func noServices(namespace, service, port string) (int32, error) {
 	return 0, errors.New("no services")
 }
 
+// svc is the origin URL render produces for Service name on port 80 in the
+// namespace testIngress uses.
 func svc(name string) string {
 	return fmt.Sprintf("http://%s.ns:80", name)
 }

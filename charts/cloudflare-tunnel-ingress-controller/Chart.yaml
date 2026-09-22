@@ -1,6 +1,17 @@
 apiVersion: v2
 name: cloudflare-tunnel-ingress-controller
-description: A Helm chart for deploying the Cloudflare Tunnel Ingress Controller
+description: Publishes Kubernetes Ingresses through a Cloudflare Tunnel, managing the tunnel's routes, DNS records and cloudflared connectors
 type: application
+home: https://github.com/clbs-io/cloudflare-tunnel-ingress-controller
+sources:
+  - https://github.com/clbs-io/cloudflare-tunnel-ingress-controller
+keywords:
+  - cloudflare
+  - cloudflare-tunnel
+  - cloudflared
+  - ingress
+  - ingress-controller
+# The two versions below are placeholders; the publish workflow sets both from
+# the release tag.
 version: 0.4.0
-appVersion: 0.0.0 # True version is set by the GitHub Actions workflow
+appVersion: 0.0.0

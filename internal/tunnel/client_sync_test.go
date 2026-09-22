@@ -13,6 +13,8 @@ import (
 
 type originRequest = zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest
 
+// newTestClient returns a Client for the fake's tunnel with the tunnel ID
+// already resolved, so tests can call Sync without EnsureTunnelExists.
 func newTestClient(fake *cftest.Server) *Client {
 	c := NewClient(fake.Client(), cftest.AccountID, cftest.TunnelName, logr.Discard())
 	c.tunnelID = cftest.TunnelID
@@ -86,6 +88,8 @@ func decodeRules(t *testing.T, raw json.RawMessage) []map[string]any {
 	return rules
 }
 
+// lastPut decodes the rules of the last configuration write and fails the
+// test when there was none.
 func lastPut(t *testing.T, fake *cftest.Server) []map[string]any {
 	t.Helper()
 	if len(fake.ConfigPuts) == 0 {
@@ -94,6 +98,8 @@ func lastPut(t *testing.T, fake *cftest.Server) []map[string]any {
 	return decodeRules(t, fake.ConfigPuts[len(fake.ConfigPuts)-1])
 }
 
+// routes reduces rules to their hostname and path, in order, for asserting
+// on rule order.
 func routes(rules []map[string]any) [][2]string {
 	out := make([][2]string, 0, len(rules))
 	for _, r := range rules {

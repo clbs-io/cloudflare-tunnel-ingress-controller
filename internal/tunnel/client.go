@@ -1,3 +1,11 @@
+// Package tunnel talks to the Cloudflare API on behalf of the controller. It
+// finds or creates one remote-managed tunnel by name, replaces the tunnel's
+// ingress rules with the desired ones, owns the DNS records that point at the
+// tunnel, and creates Access applications.
+//
+// Ownership of DNS records is decided by content alone: every CNAME to
+// <tunnelID>.cfargotunnel.com, in every zone the API token can list, belongs
+// to this package and is deleted when no rule needs its name.
 package tunnel
 
 import (
@@ -20,8 +28,12 @@ import (
 	"github.com/go-logr/logr"
 )
 
+// tunnelDomain is the domain of tunnel addresses; the tunnel's DNS records
+// are CNAMEs to <tunnelID>.cfargotunnel.com.
 const tunnelDomain = "cfargotunnel.com"
 
+// Client manages one tunnel, identified by account and name. It is not safe
+// for concurrent use; the controller calls it from one reconcile at a time.
 type Client struct {
 	logger logr.Logger
 
@@ -29,10 +41,14 @@ type Client struct {
 	accountID     string
 	tunnelName    string
 
+	// tunnelID and tunnelToken are looked up once and cached for the life of
+	// the Client.
 	tunnelID    string
 	tunnelToken string
 }
 
+// NewClient returns a Client for the tunnel named tunnelName in accountID.
+// It makes no API call; EnsureTunnelExists resolves the tunnel.
 func NewClient(cloudflareAPI *cloudflare.Client, accountID, tunnelName string, logger logr.Logger) *Client {
 	return &Client{
 		logger:        logger,
@@ -42,6 +58,8 @@ func NewClient(cloudflareAPI *cloudflare.Client, accountID, tunnelName string, l
 	}
 }
 
+// GetTunnelToken returns the token cloudflared runs the tunnel with. It must
+// be called after EnsureTunnelExists and is fetched once.
 func (c *Client) GetTunnelToken(ctx context.Context) (string, error) {
 	if len(c.tunnelToken) == 0 {
 		tunnel_token, err := c.cloudflareAPI.ZeroTrust.Tunnels.Cloudflared.Token.Get(ctx, c.tunnelID, zero_trust.TunnelCloudflaredTokenGetParams{
@@ -59,6 +77,9 @@ func (c *Client) GetTunnelToken(ctx context.Context) (string, error) {
 	return c.tunnelToken, nil
 }
 
+// EnsureTunnelExists resolves the tunnel ID: the first call finds the tunnel
+// by name, skipping deleted tunnels, or creates it; later calls check that the
+// cached ID still resolves. A tunnel renamed in the dashboard is only logged.
 func (c *Client) EnsureTunnelExists(ctx context.Context, logger logr.Logger) error {
 	if c.tunnelID == "" {
 		logger.Info("TunnelID not set, looking for an existing tunnel")
@@ -69,7 +90,7 @@ func (c *Client) EnsureTunnelExists(ctx context.Context, logger logr.Logger) err
 		for tunnels.Next() {
 			tunnel := tunnels.Current()
 			if !tunnel.DeletedAt.IsZero() {
-				// This is some deleted tunnel, skip it
+				// Deleted tunnels stay listed and may share the name
 				continue
 			}
 			if tunnel.Name == c.tunnelName {
@@ -105,6 +126,9 @@ func (c *Client) EnsureTunnelExists(ctx context.Context, logger logr.Logger) err
 	return nil
 }
 
+// createTunnel creates a remote-managed tunnel, whose cloudflared connectors
+// take their ingress rules from the API. The random secret becomes part of
+// the tunnel credentials, which cloudflared receives inside the token.
 func (c *Client) createTunnel(ctx context.Context, logger logr.Logger) error {
 	secret := make([]byte, 64)
 	_, err := rand.Read(secret)
@@ -137,6 +161,8 @@ type SyncResult struct {
 }
 
 // Sync makes the tunnel configuration and the tunnel DNS records match config.
+// The configuration is written first, so a new hostname's route exists by the
+// time its DNS record resolves.
 func (c *Client) Sync(ctx context.Context, logger logr.Logger, config *Config) (SyncResult, error) {
 	zone_map, err := c.getDnsZoneMap(ctx, logger)
 	if err != nil {
@@ -156,7 +182,8 @@ func (c *Client) Sync(ctx context.Context, logger logr.Logger, config *Config) (
 }
 
 // EnsureAccessApplications creates an account-level self-hosted Access
-// application for every requested hostname that has none.
+// application for every requested hostname that has none. Applications are
+// matched by domain, created without policies, and never updated or deleted.
 func (c *Client) EnsureAccessApplications(ctx context.Context, logger logr.Logger, config *Config) error {
 	if len(config.AccessAppRequests) == 0 {
 		return nil
@@ -198,7 +225,9 @@ func (c *Client) EnsureAccessApplications(ctx context.Context, logger logr.Logge
 }
 
 // synchronizeTunnelConfiguration replaces the remote ingress rules with the
-// rules rendered from config whenever the two differ.
+// rules rendered from config whenever the two differ. The API only accepts the
+// complete rule list, and every write creates a configuration version that
+// the connectors load, hence the comparison first.
 func (c *Client) synchronizeTunnelConfiguration(ctx context.Context, logger logr.Logger, config *Config) error {
 	tc, err := c.cloudflareAPI.ZeroTrust.Tunnels.Cloudflared.Configurations.Get(ctx, c.tunnelID, zero_trust.TunnelCloudflaredConfigurationGetParams{
 		AccountID: cloudflare.F(c.accountID),
@@ -334,6 +363,9 @@ func ingressRulesEqual(desired []zero_trust.TunnelCloudflaredConfigurationUpdate
 	return reflect.DeepEqual(normalizeJSON(want), normalizeJSON(have)), nil
 }
 
+// normalizeJSON recursively drops object members whose value is empty (see
+// isEmptyJSON), so documents that differ only in how they spell "unset"
+// compare equal. Array elements are kept, since rule order matters.
 func normalizeJSON(v any) any {
 	switch v := v.(type) {
 	case map[string]any:
@@ -355,6 +387,9 @@ func normalizeJSON(v any) any {
 	}
 }
 
+// isEmptyJSON reports whether a decoded JSON value means "unset" for
+// cloudflared: null, "", false, {} or []. Numbers never count as empty,
+// because an explicit 0 overrides cloudflared's default.
 func isEmptyJSON(v any) bool {
 	switch v := v.(type) {
 	case nil:
@@ -372,6 +407,8 @@ func isEmptyJSON(v any) bool {
 	}
 }
 
+// isInZone reports whether hostname is the zone apex or a name below it;
+// "notexample.com" is not in "example.com".
 func (c *Client) isInZone(hostname string, zoneName string) bool {
 	return (hostname == zoneName) || strings.HasSuffix(hostname, "."+zoneName)
 }
@@ -508,8 +545,9 @@ func (c *Client) listTunnelDnsRecords(ctx context.Context, zoneID string) ([]dns
 	return records, nil
 }
 
+// getDnsZoneMap maps the name of every zone of the account that the API token
+// can list to the zone ID.
 func (c *Client) getDnsZoneMap(ctx context.Context, logger logr.Logger) (map[string]string, error) {
-	// get the zone id
 	result := make(map[string]string)
 
 	zones := c.cloudflareAPI.Zones.ListAutoPaging(ctx, zones.ZoneListParams{

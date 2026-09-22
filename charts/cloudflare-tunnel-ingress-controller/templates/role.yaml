@@ -1,3 +1,8 @@
+{{- /*
+Permissions in the controller's namespace. Secrets and Deployments are read
+straight from the API server, never cached, so each rule is pinned to one
+object by name except Secret creation, which cannot be limited by name.
+*/ -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -5,12 +10,14 @@ metadata:
   labels:
     {{- include "cloudflare-tunnel-ingress-controller.labels" . | nindent 4 }}
 rules:
+  {{- /* Create the tunnel token Secret the cloudflared pods mount. */}}
   - apiGroups:
       - ""
     resources:
       - secrets
     verbs:
       - create
+  {{- /* Keep the token Secret equal to the tunnel token. */}}
   - apiGroups:
       - ""
     resources:
@@ -20,6 +27,10 @@ rules:
     verbs:
       - get
       - update
+  {{- /*
+  Read the cloudflared Deployment's availability and roll its pods through a
+  pod-template annotation when the token changes.
+  */}}
   - apiGroups:
       - apps
     resources:
@@ -29,6 +40,10 @@ rules:
     verbs:
       - get
       - patch
+  {{- /*
+  Delete the legacy cloudflared Deployment created by the controller rather
+  than the chart, once the chart's Deployment is available.
+  */}}
   - apiGroups:
       - apps
     resources:
@@ -38,6 +53,7 @@ rules:
     verbs:
       - get
       - delete
+  {{- /* Leader election. */}}
   - apiGroups:
       - coordination.k8s.io
     resources:
@@ -46,6 +62,7 @@ rules:
       - get
       - create
       - update
+  {{- /* Leader-election Events. */}}
   - apiGroups:
       - ""
     resources:

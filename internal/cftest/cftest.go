@@ -17,6 +17,8 @@ import (
 	"github.com/cloudflare/cloudflare-go/v7/option"
 )
 
+// Identifiers of the fake account: one tunnel and one zone exist from the
+// start; AddZone adds more zones.
 const (
 	AccountID  = "acc"
 	TunnelID   = "tun-id"
@@ -28,6 +30,7 @@ const (
 // TunnelTarget is the CNAME content of DNS records that route to the fake tunnel.
 const TunnelTarget = TunnelID + ".cfargotunnel.com"
 
+// DNSRecord is a DNS record as the fake stores and returns it.
 type DNSRecord struct {
 	ID      string `json:"id"`
 	Name    string `json:"name"`
@@ -37,6 +40,7 @@ type DNSRecord struct {
 	ZoneID string `json:"-"`
 }
 
+// AccessApp is an Access application as the fake stores and returns it.
 type AccessApp struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
@@ -69,6 +73,8 @@ type Server struct {
 	srv *httptest.Server
 }
 
+// New starts a fake on the in-memory network of httptest.NewTestServer; the
+// server stops when t finishes. Use Client to talk to it.
 func New(t testing.TB) *Server {
 	s := &Server{ingress: json.RawMessage("[]"), zones: map[string]string{ZoneName: ZoneID}}
 
@@ -181,6 +187,7 @@ func (s *Server) AddAccessApp(name, domain string) {
 	s.accessApps = append(s.accessApps, AccessApp{ID: fmt.Sprintf("app-%d", s.nextID), Name: name, Domain: domain, Type: "self_hosted", Scope: "accounts"})
 }
 
+// writeResult writes a success response in the Cloudflare v4 API envelope.
 func writeResult(w http.ResponseWriter, result any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -191,6 +198,8 @@ func writeResult(w http.ResponseWriter, result any) {
 	})
 }
 
+// writeError writes an error response in the Cloudflare v4 API envelope; the
+// SDK exposes code as cloudflare.Error.Errors[].Code.
 func writeError(w http.ResponseWriter, status, code int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -272,6 +281,8 @@ func (s *Server) listZones(w http.ResponseWriter, r *http.Request) {
 	writePage(w, r, zones)
 }
 
+// listRecords supports the content.exact filter the controller uses to find
+// the tunnel's records.
 func (s *Server) listRecords(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -290,6 +301,8 @@ func (s *Server) listRecords(w http.ResponseWriter, r *http.Request) {
 	writePage(w, r, out)
 }
 
+// createRecord rejects a name that already has a record in the zone with
+// error 81053, like the real API.
 func (s *Server) createRecord(w http.ResponseWriter, r *http.Request) {
 	var rec DNSRecord
 	if err := json.NewDecoder(r.Body).Decode(&rec); err != nil {

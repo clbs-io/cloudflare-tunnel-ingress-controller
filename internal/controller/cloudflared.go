@@ -23,10 +23,15 @@ const (
 	// legacy Deployment waits for the chart's Deployment to become available.
 	legacyCloudflaredRequeue = time.Minute
 
-	managedByLabel      = "app.kubernetes.io/managed-by"
-	managedByValue      = "cloudflare-tunnel-ingress-controller"
+	// managedByLabel and managedByValue mark the token Secret, and identify
+	// the legacy Deployment as one the controller created.
+	managedByLabel = "app.kubernetes.io/managed-by"
+	managedByValue = "cloudflare-tunnel-ingress-controller"
+	// tokenHashAnnotation on the chart Deployment's pod template holds
+	// tokenHash(token); a new value rolls the pods onto the new token.
 	tokenHashAnnotation = "cloudflare-tunnel-ingress-controller.clbs.io/token-hash"
-	tunnelTokenKey      = "token"
+	// tunnelTokenKey is the Secret key the pods mount as their token file.
+	tunnelTokenKey = "token"
 )
 
 // ensureCloudflared prepares the chart's cloudflared Deployment for the tunnel

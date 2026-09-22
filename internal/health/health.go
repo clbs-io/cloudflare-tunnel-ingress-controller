@@ -1,3 +1,5 @@
+// Package health serves the controller's liveness and readiness endpoints
+// for the kubelet probes.
 package health
 
 import (
@@ -11,14 +13,20 @@ import (
 	"github.com/go-logr/logr"
 )
 
+// Server answers /livez and /readyz. Liveness only proves the process
+// serves HTTP; readiness is whatever the owner last passed to SetReady.
 type Server struct {
 	logger logr.Logger
 	server *http.Server
 
+	// ready is written by the owner and read by concurrent probe requests,
+	// hence the lock.
 	ready bool
 	mu    sync.RWMutex
 }
 
+// NewServer returns a Server listening on port, not ready until SetReady(true).
+// The short timeouts suit probe traffic, which never carries a body.
 func NewServer(logger logr.Logger, port int) *Server {
 	s := &Server{
 		logger: logger,
@@ -39,6 +47,8 @@ func NewServer(logger logr.Logger, port int) *Server {
 	return s
 }
 
+// Start serves until ctx is cancelled, then shuts down gracefully within five
+// seconds. It blocks, and returns nil on a clean shutdown.
 func (s *Server) Start(ctx context.Context) error {
 	go func() { //nolint:gosec // G118: context.Background is intentional — parent ctx is cancelled when shutdown runs
 		<-ctx.Done()
@@ -56,6 +66,8 @@ func (s *Server) Start(ctx context.Context) error {
 	return nil
 }
 
+// SetReady sets what /readyz reports; it is safe to call concurrently with
+// probe requests.
 func (s *Server) SetReady(ready bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

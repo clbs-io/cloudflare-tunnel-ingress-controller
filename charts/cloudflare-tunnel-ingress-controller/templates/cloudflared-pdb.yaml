@@ -1,3 +1,8 @@
+{{- /*
+Rendered only with more than one replica: with a single one, minAvailable 1
+would block every voluntary eviction. AlwaysAllow lets a drain evict pods that
+never became ready, such as pods still waiting for the token Secret.
+*/ -}}
 {{- if and .Values.cloudflared.podDisruptionBudget.enabled (gt (int .Values.cloudflared.replicas) 1) }}
 apiVersion: policy/v1
 kind: PodDisruptionBudget

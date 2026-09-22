@@ -29,6 +29,9 @@ const (
 	testControllerClass = "clbs.io/cloudflare-tunnel-ingress-controller"
 )
 
+// fixture wires a real IngressController to the controller-runtime fake
+// client and the cftest fake Cloudflare API; k8s and cloudflare expose the
+// resulting state to assertions.
 type fixture struct {
 	controller *IngressController
 	k8s        client.Client
@@ -36,6 +39,8 @@ type fixture struct {
 	recorder   *events.FakeRecorder
 }
 
+// newFixture seeds objects plus the IngressClass of the controller's class.
+// The fake client serves as both the cached client and the API reader.
 func newFixture(t *testing.T, objects ...client.Object) *fixture {
 	t.Helper()
 	cloudflare := cftest.New(t)
@@ -115,6 +120,8 @@ func (f *fixture) get(t *testing.T, name string) (*networkingv1.Ingress, error) 
 	return ingress, err
 }
 
+// publishedHosts returns the hostnames of the last tunnel configuration
+// written, without the catch-all rule; nil when nothing was written.
 func (f *fixture) publishedHosts(t *testing.T) []string {
 	t.Helper()
 	if len(f.cloudflare.ConfigPuts) == 0 {
@@ -133,6 +140,7 @@ func (f *fixture) publishedHosts(t *testing.T) []string {
 	return hosts
 }
 
+// events drains the Events recorded so far without blocking.
 func (f *fixture) events() []string {
 	var out []string
 	for {

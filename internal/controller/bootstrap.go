@@ -21,15 +21,29 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
+// IngressControllerOptions configures an IngressController.
 type IngressControllerOptions struct {
-	IngressClassName      string
-	ControllerClassName   string
-	ResyncPeriod          time.Duration
-	TunnelClient          *tunnel.Client
-	TunnelTokenSecret     string
+	// IngressClassName is the IngressClass whose Ingresses are published.
+	IngressClassName string
+	// ControllerClassName is the spec.controller value of the IngressClasses
+	// this controller serves. It tells Ingresses of another installation of
+	// this controller apart from Ingresses moved to a foreign class.
+	ControllerClassName string
+	// ResyncPeriod is how often the whole tunnel is reconciled when no event
+	// arrives; it corrects changes made outside the cluster.
+	ResyncPeriod time.Duration
+	TunnelClient *tunnel.Client
+	// TunnelTokenSecret is the name of the Secret, in the controller's
+	// namespace, that the cloudflared pods mount the tunnel token from.
+	TunnelTokenSecret string
+	// CloudflaredDeployment is the name of the chart's cloudflared Deployment
+	// in the controller's namespace.
 	CloudflaredDeployment string
 }
 
+// RegisterIngressController creates the controller and registers it with mgr.
+// Every relevant Ingress or Service event, plus one event at startup, maps to
+// the same request, so bursts of events collapse into one reconcile.
 func RegisterIngressController(logger logr.Logger, mgr manager.Manager, options IngressControllerOptions) (*IngressController, error) {
 	ingressController := NewIngressController(logger.WithName("ingress-controller"), mgr.GetClient(), mgr.GetAPIReader(), mgr.GetEventRecorder("cloudflare-tunnel-ingress-controller"), options)
 
@@ -42,6 +56,8 @@ func RegisterIngressController(logger logr.Logger, mgr manager.Manager, options 
 	startup := make(chan event.GenericEvent, 1)
 	startup <- event.GenericEvent{Object: &networkingv1.Ingress{}}
 
+	// A Service can only change the rendered rules through the port numbers
+	// behind named ports.
 	servicePortsChanged := predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			old_service, old_ok := e.ObjectOld.(*corev1.Service)
@@ -67,7 +83,9 @@ func RegisterIngressController(logger logr.Logger, mgr manager.Manager, options 
 }
 
 // ingressEventFilter passes Ingress events that change the generation or the
-// annotations of an Ingress relevant to the tunnel.
+// annotations of an Ingress relevant to the tunnel. Status-only updates,
+// including the controller's own status patches, change neither, so they do
+// not trigger another run.
 func (c *IngressController) ingressEventFilter() predicate.Predicate {
 	relevant := predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
