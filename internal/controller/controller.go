@@ -37,12 +37,12 @@ type IngressController struct {
 	resyncPeriod        time.Duration
 	kubernetesApiTunnel KubernetesApiTunnelConfig
 
-	cloudflaredDeploymentConfig cloudflaredDeploymentConfig
-}
+	// reader reads Secrets and Deployments directly from the API server, so
+	// no informer caches them.
+	reader client.Reader
 
-type CloudflaredConfig struct {
-	CloudflaredImage           string
-	CloudflaredImagePullPolicy string
+	tunnelTokenSecret     string
+	cloudflaredDeployment string
 }
 
 var (
@@ -50,12 +50,13 @@ var (
 	_namespace     string
 )
 
-func NewIngressController(logger logr.Logger, client client.Client, recorder events.EventRecorder, options IngressControllerOptions) *IngressController {
+func NewIngressController(logger logr.Logger, client client.Client, reader client.Reader, recorder events.EventRecorder, options IngressControllerOptions) *IngressController {
 	kubernetes_api_tunnel_enabled, _ := env.GetBool("KUBERNETES_API_TUNNEL_ENABLED", false)
 
 	return &IngressController{
 		logger:              logger,
 		client:              client,
+		reader:              reader,
 		recorder:            recorder,
 		tunnelClient:        options.TunnelClient,
 		ingressClassName:    options.IngressClassName,
@@ -67,10 +68,8 @@ func NewIngressController(logger logr.Logger, client client.Client, recorder eve
 			Domain:                  os.Getenv("KUBERNETES_API_TUNNEL_DOMAIN"),
 			CloudflareAccessAppName: os.Getenv("KUBERNETES_API_TUNNEL_CF_ACCESS_APP_NAME"),
 		},
-		cloudflaredDeploymentConfig: cloudflaredDeploymentConfig{
-			cloudflaredImage:           options.CloudflaredConfig.CloudflaredImage,
-			cloudflaredImagePullPolicy: options.CloudflaredConfig.CloudflaredImagePullPolicy,
-		},
+		tunnelTokenSecret:     options.TunnelTokenSecret,
+		cloudflaredDeployment: options.CloudflaredDeployment,
 	}
 }
 
@@ -79,10 +78,12 @@ func NewIngressController(logger logr.Logger, client client.Client, recorder eve
 func (c *IngressController) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	if err := c.ensureCloudflareTunnelExists(ctx, logger); err != nil {
+	token, err := c.ensureCloudflareTunnelExists(ctx, logger)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
-	if err := c.EnsureCloudflaredDeploymentExists(ctx, logger); err != nil {
+	legacy_pending, err := c.ensureCloudflared(ctx, logger, token)
+	if err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -145,7 +146,11 @@ func (c *IngressController) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl
 		return ctrl.Result{}, err
 	}
 
-	return ctrl.Result{RequeueAfter: c.resyncPeriod}, nil
+	requeue := c.resyncPeriod
+	if legacy_pending {
+		requeue = legacyCloudflaredRequeue
+	}
+	return ctrl.Result{RequeueAfter: requeue}, nil
 }
 
 // classifyIngresses splits Ingresses into active ones of our class and

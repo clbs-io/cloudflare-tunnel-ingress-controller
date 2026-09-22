@@ -13,30 +13,19 @@ import (
 	"github.com/go-logr/logr"
 )
 
-func (c *IngressController) SetTunnelToken(token string) {
-	c.cloudflaredDeploymentConfig.tunnelTokenLck.Lock()
-	defer c.cloudflaredDeploymentConfig.tunnelTokenLck.Unlock()
-	c.cloudflaredDeploymentConfig.tunnelToken = token
-}
-
-func (c *IngressController) ensureCloudflareTunnelExists(ctx context.Context, logger logr.Logger) error {
+func (c *IngressController) ensureCloudflareTunnelExists(ctx context.Context, logger logr.Logger) (string, error) {
 	logger.Info("Ensuring Cloudflare Tunnel exists")
-	err := c.tunnelClient.EnsureTunnelExists(ctx, logger)
-	if err != nil {
+	if err := c.tunnelClient.EnsureTunnelExists(ctx, logger); err != nil {
 		logger.Error(err, "Failed to ensure Cloudflare Tunnel exists")
-		return err
+		return "", err
 	}
 
 	token, err := c.tunnelClient.GetTunnelToken(ctx)
 	if err != nil {
 		logger.Error(err, "Failed to get Cloudflare Tunnel token")
-		return err
+		return "", err
 	}
-
-	c.cloudflaredDeploymentConfig.tunnelTokenLck.Lock()
-	c.cloudflaredDeploymentConfig.tunnelToken = token
-	c.cloudflaredDeploymentConfig.tunnelTokenLck.Unlock()
-	return nil
+	return token, nil
 }
 
 func applyOriginRequestAnnotations(origin_config *zero_trust.TunnelCloudflaredConfigurationGetResponseConfigIngressOriginRequest, annotations map[string]string) []warning {

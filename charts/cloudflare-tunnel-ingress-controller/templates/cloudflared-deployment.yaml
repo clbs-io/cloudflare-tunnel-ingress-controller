@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "cloudflare-tunnel-ingress-controller.cloudflaredName" . }}
+  labels:
+    {{- include "cloudflare-tunnel-ingress-controller.cloudflaredLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.cloudflared.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      {{- include "cloudflare-tunnel-ingress-controller.cloudflaredSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cloudflare-tunnel-ingress-controller.cloudflaredSelectorLabels" . | nindent 8 }}
+        {{- with .Values.cloudflared.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.cloudflared.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.cloudflared.terminationGracePeriodSeconds }}
+      {{- with .Values.cloudflared.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cloudflared.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with .Values.cloudflared.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: cloudflared
+          image: {{ include "cloudflare-tunnel-ingress-controller.cloudflaredImage" . | quote }}
+          imagePullPolicy: {{ include "cloudflare-tunnel-ingress-controller.cloudflaredImagePullPolicy" . }}
+          args:
+            - tunnel
+            - --metrics
+            - 0.0.0.0:9090
+            {{- range .Values.cloudflared.extraArgs }}
+            - {{ . | quote }}
+            {{- end }}
+            - run
+            - --token-file
+            - /etc/cloudflared/token
+          ports:
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthcheck
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          {{- with .Values.cloudflared.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.cloudflared.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: tunnel-token
+              mountPath: /etc/cloudflared
+              readOnly: true
+      volumes:
+        - name: tunnel-token
+          secret:
+            secretName: {{ include "cloudflare-tunnel-ingress-controller.tunnelTokenSecretName" . }}
+            # 0444: pod-private tmpfs, readable without fsGroup
+            defaultMode: 292
+            items:
+              - key: token
+                path: token
+      topologySpreadConstraints:
+        {{- if .Values.cloudflared.topologySpreadConstraints }}
+        {{- toYaml .Values.cloudflared.topologySpreadConstraints | nindent 8 }}
+        {{- else }}
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              {{- include "cloudflare-tunnel-ingress-controller.cloudflaredSelectorLabels" . | nindent 14 }}
+        {{- end }}
+      {{- with .Values.cloudflared.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cloudflared.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cloudflared.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

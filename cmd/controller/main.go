@@ -37,8 +37,8 @@ var (
 	resyncPeriod time.Duration
 	leaderElect  bool
 
-	cloudflaredImage           string
-	cloudflaredImagePullPolicy string
+	tunnelTokenSecret     string
+	cloudflaredDeployment string
 
 	cloudflareAPIToken string
 
@@ -99,30 +99,25 @@ func run(logger logr.Logger) error {
 
 	tunnelClient := tunnel.NewClient(cloudflareAPI, cloudflareAccountID, cloudflareTunnelName, logger)
 
-	ctrlr, err := controller.RegisterIngressController(logger, mgr, controller.IngressControllerOptions{
-		IngressClassName:    ingressClassName,
-		ControllerClassName: controllerClassName,
-		ResyncPeriod:        resyncPeriod,
-		TunnelClient:        tunnelClient,
-		CloudflaredConfig: controller.CloudflaredConfig{
-			CloudflaredImage:           cloudflaredImage,
-			CloudflaredImagePullPolicy: cloudflaredImagePullPolicy,
-		},
-	})
-	if err != nil {
+	if _, err := controller.RegisterIngressController(logger, mgr, controller.IngressControllerOptions{
+		IngressClassName:      ingressClassName,
+		ControllerClassName:   controllerClassName,
+		ResyncPeriod:          resyncPeriod,
+		TunnelClient:          tunnelClient,
+		TunnelTokenSecret:     tunnelTokenSecret,
+		CloudflaredDeployment: cloudflaredDeployment,
+	}); err != nil {
 		return fmt.Errorf("could not register ingress controller: %w", err)
 	}
 
-	err = tunnelClient.EnsureTunnelExists(ctx, logger)
-	if err != nil {
+	if err := tunnelClient.EnsureTunnelExists(ctx, logger); err != nil {
 		return fmt.Errorf("could not ensure tunnel exists: %w", err)
 	}
 
-	token, err := tunnelClient.GetTunnelToken(ctx)
-	if err != nil {
+	// Fails fast on an API token that cannot read the tunnel token
+	if _, err := tunnelClient.GetTunnelToken(ctx); err != nil {
 		return fmt.Errorf("could not get tunnel token: %w", err)
 	}
-	ctrlr.SetTunnelToken(token)
 
 	healthSrv := health.NewServer(logger.WithName("health"), 8081)
 
@@ -181,14 +176,14 @@ func loadConfig() error {
 		return errors.New("CLOUDFLARE_API_TOKEN or CLOUDFLARE_API_TOKEN_FILE is required")
 	}
 
-	cloudflaredImage = os.Getenv("CLOUDFLARED_IMAGE")
-	if cloudflaredImage == "" {
-		return errors.New("CLOUDFLARED_IMAGE is required")
+	tunnelTokenSecret = os.Getenv("TUNNEL_TOKEN_SECRET")
+	if tunnelTokenSecret == "" {
+		return errors.New("TUNNEL_TOKEN_SECRET is required")
 	}
 
-	cloudflaredImagePullPolicy = os.Getenv("CLOUDFLARED_IMAGE_PULL_POLICY")
-	if cloudflaredImagePullPolicy == "" {
-		return errors.New("CLOUDFLARED_IMAGE_PULL_POLICY is required")
+	cloudflaredDeployment = os.Getenv("CLOUDFLARED_DEPLOYMENT")
+	if cloudflaredDeployment == "" {
+		return errors.New("CLOUDFLARED_DEPLOYMENT is required")
 	}
 
 	cloudflareAccountID = os.Getenv("CLOUDFLARE_ACCOUNT_ID")

@@ -22,21 +22,23 @@ import (
 )
 
 type IngressControllerOptions struct {
-	IngressClassName    string
-	ControllerClassName string
-	ResyncPeriod        time.Duration
-	TunnelClient        *tunnel.Client
-	CloudflaredConfig   CloudflaredConfig
+	IngressClassName      string
+	ControllerClassName   string
+	ResyncPeriod          time.Duration
+	TunnelClient          *tunnel.Client
+	TunnelTokenSecret     string
+	CloudflaredDeployment string
 }
 
 func RegisterIngressController(logger logr.Logger, mgr manager.Manager, options IngressControllerOptions) (*IngressController, error) {
-	ingressController := NewIngressController(logger.WithName("ingress-controller"), mgr.GetClient(), mgr.GetEventRecorder("cloudflare-tunnel-ingress-controller"), options)
+	ingressController := NewIngressController(logger.WithName("ingress-controller"), mgr.GetClient(), mgr.GetAPIReader(), mgr.GetEventRecorder("cloudflare-tunnel-ingress-controller"), options)
 
 	toTunnel := handler.EnqueueRequestsFromMapFunc(func(context.Context, client.Object) []reconcile.Request {
 		return []reconcile.Request{{Name: tunnelReconcileKey}}
 	})
 
-	// Fires the first reconcile, so cloudflared is deployed without any Ingress
+	// Fires the first reconcile, so it writes the token Secret and prepares
+	// the chart's cloudflared Deployment without any Ingress
 	startup := make(chan event.GenericEvent, 1)
 	startup <- event.GenericEvent{Object: &networkingv1.Ingress{}}
 
@@ -82,7 +84,7 @@ func (c *IngressController) ingressEventFilter() predicate.Predicate {
 			return c.isTunnelIngress(e.Object)
 		},
 	}
-	return predicate.And(relevant, predicate.Or[client.Object](predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}))
+	return predicate.And(relevant, predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}))
 }
 
 // isTunnelIngress reports whether obj is an Ingress of our class or one that

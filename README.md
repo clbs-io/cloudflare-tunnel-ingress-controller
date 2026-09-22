@@ -21,6 +21,7 @@ This controller watches for Ingress resources, automatically creates Cloudflare 
 1. On startup, the controller creates a Cloudflare Tunnel (or reuses an existing one by name)
 2. It watches for Ingress resources with the configured IngressClass
 3. For each Ingress, it creates tunnel routes and DNS CNAME records pointing to the tunnel
+4. The chart runs `cloudflared` as the `<release>-cloudflared` Deployment; the controller writes the tunnel token into the `<release>-tunnel-token` Secret, which the `cloudflared` pods mount, and rolls the pods whenever the token changes
 
 ## Prerequisites
 
@@ -145,8 +146,6 @@ spec:
 |-----------|-------------|---------|
 | `config.cloudflare.apiToken.existingSecret.name` | Secret name containing the API token | `cloudflare-api-token` |
 | `config.cloudflare.apiToken.existingSecret.key` | Key within the Secret | `token` |
-| `config.cloudflared.image` | Cloudflared sidecar image (**must have explicit tag**) | `cloudflare/cloudflared:2026.2.0` |
-| `config.cloudflared.imagePullPolicy` | Pull policy for cloudflared | `IfNotPresent` |
 | `ingressClass.name` | IngressClass name | `cloudflare-tunnel` |
 | `ingressClass.controller` | Controller class identifier | `clbs.io/cloudflare-tunnel-ingress-controller` |
 | `ingressClass.isDefaultClass` | Set as default IngressClass | `false` |
@@ -161,11 +160,40 @@ spec:
 | `affinity` | Affinity rules for scheduling | `{}` |
 
 > [!IMPORTANT]
-> The `config.cloudflared.image` must have an explicit version tag. Using `latest` is not supported and will cause an error.
+> The `cloudflared.image` must have an explicit version tag. Using `latest` is not supported and will cause an error.
 
 All defaults are in [values.yaml](charts/cloudflare-tunnel-ingress-controller/values.yaml).
 
 The controller also accepts `--resync-period` (full reconcile interval, default `10m`) and `--leader-elect` (default `true`, so only one replica reconciles); pass them through `extraArgs`, for example `extraArgs: ["--resync-period=5m"]`.
+
+### cloudflared Values
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `cloudflared.image` | cloudflared image (**must have explicit tag**) | `cloudflare/cloudflared:2026.9.1` |
+| `cloudflared.imagePullPolicy` | Pull policy for cloudflared | `IfNotPresent` |
+| `cloudflared.imagePullSecrets` | Image pull secrets for cloudflared | `[]` |
+| `cloudflared.replicas` | cloudflared replicas | `2` |
+| `cloudflared.extraArgs` | Extra `cloudflared tunnel` flags, for example `["--protocol=quic", "--loglevel=warn"]` | `[]` |
+| `cloudflared.resources` | CPU/memory requests and limits | See [values.yaml](charts/cloudflare-tunnel-ingress-controller/values.yaml) |
+| `cloudflared.terminationGracePeriodSeconds` | Grace period before a pod is killed; longer than cloudflared's 30s `--grace-period`, so connections drain | `45` |
+| `cloudflared.podSecurityContext` | Pod-level security context | `runAsNonRoot: true`, `runAsUser: 65532` |
+| `cloudflared.securityContext` | Container-level security context | `readOnlyRootFilesystem: true`, drop `ALL` |
+| `cloudflared.nodeSelector` | Node selector for scheduling | `{}` |
+| `cloudflared.tolerations` | Tolerations for scheduling | `[]` |
+| `cloudflared.affinity` | Affinity rules for scheduling | `{}` |
+| `cloudflared.topologySpreadConstraints` | Topology spread constraints; empty spreads replicas across nodes when possible | `[]` |
+| `cloudflared.priorityClassName` | Pod priority class | `""` |
+| `cloudflared.podAnnotations` | Extra annotations on cloudflared pods | `{}` |
+| `cloudflared.podLabels` | Extra labels on cloudflared pods | `{}` |
+| `cloudflared.podDisruptionBudget.enabled` | Create a PodDisruptionBudget (only takes effect with more than one replica) | `true` |
+| `cloudflared.podDisruptionBudget.minAvailable` | Minimum available cloudflared pods | `1` |
+| `cloudflared.podMonitor.enabled` | Create a Prometheus Operator PodMonitor for cloudflared | `false` |
+| `cloudflared.podMonitor.interval` | Scrape interval for the PodMonitor | `30s` |
+| `cloudflared.podMonitor.labels` | Extra labels on the PodMonitor, for a Prometheus Operator `podMonitorSelector` | `{}` |
+
+> [!NOTE]
+> `config.cloudflared.image` and `config.cloudflared.imagePullPolicy` are deprecated and still take precedence over `cloudflared.image` / `cloudflared.imagePullPolicy` when set.
 
 ## Usage
 
@@ -356,11 +384,24 @@ clusters:
 ## Limitations
 
 - **Single tunnel per installation** — all Ingress resources share one Cloudflare Tunnel
-- **Cloudflared deployment** — fixed at 1 replica; resource limits not configurable; metrics port hardcoded to `9090`
+- **cloudflared metrics port** — `9090`, serving `/metrics`, `/ready`, `/healthcheck`, `/config` (the tunnel's ingress rules) and `/debug/pprof` to the pod network
 - **`spec.defaultBackend`** — not supported (reported as an Event)
 - **TLS** — all TLS termination happens at Cloudflare edge; the controller does not manage certificates
 - **Kubernetes API Tunnel** — access policies must be configured manually in Cloudflare dashboard
 - **Namespace** — cloudflared deploys in the controller's namespace; Ingress resources are watched across all namespaces
+- **One release per namespace** — two releases in the same namespace share one leader-election lease, so only one of them reconciles; install one release per namespace
+
+## Upgrading
+
+The `cloudflared` Deployment is rendered by the chart as `<release>-cloudflared` (`<release>-connector` when a release named `cloudflare-tunnel` would otherwise collide with the legacy Deployment name below). If a `cloudflare-tunnel-cloudflared` Deployment created by an older release of the controller is still present, it is deleted automatically once the chart's Deployment has an available replica. No manual cleanup is needed.
+
+> [!IMPORTANT]
+> Upgrade the chart and the controller image together, and do not pin `image.tag` across chart versions: the controller requires the `TUNNEL_TOKEN_SECRET` and `CLOUDFLARED_DEPLOYMENT` environment variables, which only this chart version provides. The controller itself no longer runs `cloudflared`; an installation that does not use this chart must run `cloudflared` itself, pointed at the token Secret.
+
+- `cloudflared` must be `2025.4.0` or later, since the chart runs it with `--token-file`. An older `config.cloudflared.image` / `cloudflared.image` makes the new pods fail while the legacy Deployment keeps serving traffic.
+- `helm upgrade --reuse-values` does not pick up the new `cloudflared.*` values from this chart version; use `--reset-then-reuse-values` instead.
+- Default `cloudflared` replicas change from `1` to `2`; the pods now run as uid `65532` with a read-only root filesystem.
+- On a single-node cluster, set `cloudflared.podDisruptionBudget.enabled=false` — the PodDisruptionBudget would otherwise block draining the only node.
 
 ## Uninstallation
 
@@ -369,7 +410,7 @@ helm uninstall --namespace cloudflare-tunnel-system cloudflare-tunnel-ingress
 ```
 
 > [!NOTE]
-> The Cloudflare Tunnel and its DNS records are **not** automatically deleted on uninstall. Clean them up manually in the Cloudflare dashboard if needed.
+> The Cloudflare Tunnel, its DNS records and the `<release>-tunnel-token` Secret are **not** automatically deleted on uninstall. Clean up the tunnel and DNS records manually in the Cloudflare dashboard if needed.
 
 ## About
 

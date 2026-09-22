@@ -5,8 +5,8 @@ metadata:
   labels:
     {{- include "cloudflare-tunnel-ingress-controller.labels" . | nindent 4 }}
 data:
-  CLOUDFLARED_IMAGE: {{ .Values.config.cloudflared.image | quote }}
-  CLOUDFLARED_IMAGE_PULL_POLICY: {{ .Values.config.cloudflared.imagePullPolicy | quote }}
+  TUNNEL_TOKEN_SECRET: {{ include "cloudflare-tunnel-ingress-controller.tunnelTokenSecretName" . | quote }}
+  CLOUDFLARED_DEPLOYMENT: {{ include "cloudflare-tunnel-ingress-controller.cloudflaredName" . | quote }}
   CLOUDFLARE_ACCOUNT_ID: {{ .Values.config.cloudflare.accountID | quote }}
   CLOUDFLARE_TUNNEL_NAME: {{ .Values.config.cloudflare.tunnelName | quote }}
   KUBERNETES_API_TUNNEL_ENABLED: {{ .Values.config.kubernetesApiTunnel.enabled | quote }}

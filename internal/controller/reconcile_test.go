@@ -48,17 +48,16 @@ func newFixture(t *testing.T, objects ...client.Object) *fixture {
 	recorder := events.NewFakeRecorder(100)
 	return &fixture{
 		controller: &IngressController{
-			logger:              logr.Discard(),
-			client:              k8s,
-			recorder:            recorder,
-			tunnelClient:        tunnel.NewClient(cloudflare.Client(), cftest.AccountID, cftest.TunnelName, logr.Discard()),
-			ingressClassName:    testClass,
-			controllerClassName: testControllerClass,
-			resyncPeriod:        10 * time.Minute,
-			cloudflaredDeploymentConfig: cloudflaredDeploymentConfig{
-				cloudflaredImage:           "cloudflare/cloudflared:2026.9.1",
-				cloudflaredImagePullPolicy: "IfNotPresent",
-			},
+			logger:                logr.Discard(),
+			client:                k8s,
+			reader:                k8s,
+			recorder:              recorder,
+			tunnelClient:          tunnel.NewClient(cloudflare.Client(), cftest.AccountID, cftest.TunnelName, logr.Discard()),
+			ingressClassName:      testClass,
+			controllerClassName:   testControllerClass,
+			resyncPeriod:          10 * time.Minute,
+			tunnelTokenSecret:     testTokenSecret,
+			cloudflaredDeployment: testCloudflared,
 		},
 		k8s:        k8s,
 		cloudflare: cloudflare,

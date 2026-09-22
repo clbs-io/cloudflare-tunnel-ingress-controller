@@ -11,6 +11,10 @@ To check the controller status:
 
   kubectl get pods -n {{ .Release.Namespace }} -l "{{ include "cloudflare-tunnel-ingress-controller.selectorLabels" . | replace "\n" "," }}"
 
+To check the cloudflared rollout status:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deployment/{{ include "cloudflare-tunnel-ingress-controller.cloudflaredName" . }}
+
 To verify the IngressClass:
 
   kubectl get ingressclass {{ .Values.ingressClass.name }}

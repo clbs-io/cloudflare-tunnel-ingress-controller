@@ -1,0 +1,14 @@
+{{- if and .Values.cloudflared.podDisruptionBudget.enabled (gt (int .Values.cloudflared.replicas) 1) }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "cloudflare-tunnel-ingress-controller.cloudflaredName" . }}
+  labels:
+    {{- include "cloudflare-tunnel-ingress-controller.cloudflaredLabels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.cloudflared.podDisruptionBudget.minAvailable }}
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  selector:
+    matchLabels:
+      {{- include "cloudflare-tunnel-ingress-controller.cloudflaredSelectorLabels" . | nindent 6 }}
+{{- end }}

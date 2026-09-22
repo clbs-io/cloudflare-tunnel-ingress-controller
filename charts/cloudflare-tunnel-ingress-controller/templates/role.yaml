@@ -6,15 +6,37 @@ metadata:
     {{- include "cloudflare-tunnel-ingress-controller.labels" . | nindent 4 }}
 rules:
   - apiGroups:
+      - ""
+    resources:
+      - secrets
+    verbs:
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - secrets
+    resourceNames:
+      - {{ include "cloudflare-tunnel-ingress-controller.tunnelTokenSecretName" . }}
+    verbs:
+      - get
+      - update
+  - apiGroups:
       - apps
     resources:
       - deployments
+    resourceNames:
+      - {{ include "cloudflare-tunnel-ingress-controller.cloudflaredName" . }}
     verbs:
       - get
-      - list
-      - watch
-      - update
-      - create
+      - patch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    resourceNames:
+      - cloudflare-tunnel-cloudflared
+    verbs:
+      - get
       - delete
   - apiGroups:
       - coordination.k8s.io

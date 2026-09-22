@@ -26,10 +26,6 @@ ingressClass:
   isDefaultClass: false
 
 config:
-  cloudflared:
-    image: cloudflare/cloudflared:2026.9.1
-    imagePullPolicy: IfNotPresent
-
   cloudflare:
     accountID: ""
     tunnelName: ""
@@ -62,3 +58,47 @@ securityContext:
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
+cloudflared:
+  image: cloudflare/cloudflared:2026.9.1
+  imagePullPolicy: IfNotPresent
+  imagePullSecrets: []
+  replicas: 2
+  # cloudflared tunnel flags, for example ["--protocol=quic", "--loglevel=warn"]
+  extraArgs: []
+  resources:
+    requests:
+      cpu: 20m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  # Longer than cloudflared's 30s --grace-period, so connections drain
+  terminationGracePeriodSeconds: 45
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 65532
+    runAsGroup: 65532
+    fsGroup: 65532
+    seccompProfile:
+      type: RuntimeDefault
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  podAnnotations: {}
+  podLabels: {}
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  # Empty: spread replicas across nodes when possible
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  podMonitor:
+    enabled: false
+    interval: 30s
+    labels: {}
