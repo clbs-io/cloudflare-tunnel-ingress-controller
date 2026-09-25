@@ -101,7 +101,7 @@ cloudflared:
   # 2025.4.0 or later. config.cloudflared.image and
   # config.cloudflared.imagePullPolicy still take precedence when set
   # (deprecated).
-  image: cloudflare/cloudflared:2026.9.1
+  image: cloudflare/cloudflared:2026.9.3
   imagePullPolicy: IfNotPresent
   # Pull secrets for the cloudflared image.
   imagePullSecrets: []
